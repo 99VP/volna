@@ -1,0 +1,15 @@
+# Секреты подписи — не хранить в репозитории
+keystore.properties
+*.keystore
+*.jks
+*.p12
+
+# Локальные пути SDK
+local.properties
+
+# Сборка
+.gradle/
+build/
+.kotlin/
+app/build/
+captures/

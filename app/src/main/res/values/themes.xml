@@ -1,0 +1,8 @@
+<resources>
+    <style name="Theme.Volna" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/volna_bg</item>
+        <item name="android:statusBarColor">@color/volna_bg</item>
+        <item name="android:navigationBarColor">@color/volna_bg</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>
