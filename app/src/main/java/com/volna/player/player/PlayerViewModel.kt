@@ -733,19 +733,17 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
             UpdateChecker.openRelease(appContext, info)
             return
         }
-        viewModelScope.launch {
-            _updateProgress.value = 0f
-            _updateError.value = null
-            val result = runCatching {
-                val file = UpdateChecker.downloadApk(appContext, info) { p ->
-                    _updateProgress.value = p
-                }
-                UpdateChecker.install(appContext, file)
-            }
-            _updateProgress.value = null
-            result.onFailure {
-                _updateError.value = it.message ?: "Не удалось скачать обновление"
-            }
+        if (com.volna.player.update.UpdateDownloadManager.isDownloading(appContext)) {
+            _toast.value = "Обновление уже скачивается в уведомлениях"
+            return
+        }
+        _updateError.value = null
+        runCatching {
+            com.volna.player.update.UpdateDownloadManager.enqueue(appContext, info)
+        }.onSuccess {
+            _toast.value = "Скачивание идёт в уведомлениях"
+        }.onFailure {
+            _updateError.value = it.message ?: "Не удалось начать скачивание"
         }
     }
 

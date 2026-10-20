@@ -405,7 +405,7 @@ private fun UpdateBanner(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(
-                        "Доступна Волна ${info.version}",
+                        "Доступна Волна ${info.version} · ${info.buildId.ifBlank { "новая сборка" }}",
                         style = MaterialTheme.typography.titleSmall,
                     )
                     Text(

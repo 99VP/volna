@@ -1519,7 +1519,7 @@ fun SettingsScreen(vm: PlayerViewModel, onBack: () -> Unit) {
                     updateInfo?.let { info ->
                         SectionTitle("Обновление")
                         Text(
-                            "Доступна версия ${info.version}. У тебя ${BuildConfig.VERSION_NAME}.",
+                            "Доступна версия ${info.version} (${info.buildId.ifBlank { "новая сборка" }}). У тебя ${BuildConfig.VERSION_NAME} · ${BuildConfig.BUILD_ID}.",
                             style = MaterialTheme.typography.bodyLarge,
                         )
                         updateProgress?.let { p ->
@@ -1537,7 +1537,7 @@ fun SettingsScreen(vm: PlayerViewModel, onBack: () -> Unit) {
                                     when {
                                         updateProgress != null -> "Загрузка…"
                                         info.apkUrl == null -> "Открыть GitHub"
-                                        else -> "Скачать и установить"
+                                        else -> "Скачать обновление"
                                     },
                                 )
                             }
@@ -1565,7 +1565,7 @@ fun SettingsScreen(vm: PlayerViewModel, onBack: () -> Unit) {
 
                     Spacer(Modifier.height(28.dp))
                     Text(
-                        "Версия ${BuildConfig.VERSION_NAME}",
+                        "Версия ${BuildConfig.VERSION_NAME} · ${BuildConfig.BUILD_ID}",
                         modifier = Modifier.fillMaxWidth(),
                         textAlign = TextAlign.End,
                         style = MaterialTheme.typography.bodySmall,

@@ -58,6 +58,14 @@
             </intent-filter>
         </service>
 
+        <receiver
+            android:name=".update.UpdateDownloadReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.DOWNLOAD_COMPLETE" />
+            </intent-filter>
+        </receiver>
+
         <!-- Раздача скачанного APK для установки обновления -->
         <provider
             android:name="androidx.core.content.FileProvider"
