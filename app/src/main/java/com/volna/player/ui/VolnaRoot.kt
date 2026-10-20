@@ -110,6 +110,7 @@ fun VolnaRoot(
     var showSettings by remember { mutableStateOf(false) }
     var watchFullscreen by remember { mutableStateOf(false) }
     var shareWatchRequest by remember { mutableIntStateOf(0) }
+    var watchSettingsRequest by remember { mutableIntStateOf(0) }
     val pirat by vm.pirat.collectAsState()
     val piratMessage by vm.piratMessage.collectAsState()
     val piratQuip by vm.piratQuip.collectAsState()
@@ -196,7 +197,7 @@ fun VolnaRoot(
         val link = initialWatch ?: return@LaunchedEffect
         if (!link.url.isNullOrBlank()) vm.setWatch(link.url, link.positionMs)
         vm.setWatchRoom(link.room, link.server)
-        pagerState.animateScrollToPage(WATCH_PAGE)
+        pagerState.scrollToPage(WATCH_PAGE)
         onWatchConsumed()
     }
 
@@ -254,19 +255,19 @@ fun VolnaRoot(
                                     val page = pagerState.currentPage
                                     NavigationBarItem(
                                         selected = page == 0,
-                                        onClick = { scope.launch { pagerState.animateScrollToPage(0) } },
+                                        onClick = { scope.launch { pagerState.scrollToPage(0) } },
                                         icon = { Icon(painterResource(R.drawable.ic_library), null) },
                                         label = { Text("Телефон") },
                                     )
                                     NavigationBarItem(
                                         selected = page == 1,
-                                        onClick = { scope.launch { pagerState.animateScrollToPage(1) } },
+                                        onClick = { scope.launch { pagerState.scrollToPage(1) } },
                                         icon = { Icon(painterResource(R.drawable.ic_trending), null) },
                                         label = { Text("Тренды") },
                                     )
                                     NavigationBarItem(
                                         selected = page == 2,
-                                        onClick = { scope.launch { pagerState.animateScrollToPage(2) } },
+                                        onClick = { scope.launch { pagerState.scrollToPage(2) } },
                                         icon = { Icon(painterResource(R.drawable.ic_wave), null) },
                                         label = { Text("Волна") },
                                     )
@@ -317,10 +318,11 @@ fun VolnaRoot(
                                 onSearch = { showSearch = true },
                                 onWatch = {
                                     showSearch = false
-                                    scope.launch { pagerState.animateScrollToPage(WATCH_PAGE) }
+                                    scope.launch { pagerState.scrollToPage(WATCH_PAGE) }
                                 },
                                 isWatch = pagerState.currentPage == WATCH_PAGE,
                                 onWatchTogether = { shareWatchRequest++ },
+                                onWatchSettings = { watchSettingsRequest++ },
                             )
                         }
                         val info = updateInfo
@@ -350,6 +352,7 @@ fun VolnaRoot(
                                     },
                                     onFullscreen = { watchFullscreen = it },
                                     shareRequest = shareWatchRequest,
+                                    settingsRequest = watchSettingsRequest,
                                 )
                             }
                         }
@@ -442,6 +445,7 @@ private fun Header(
     onWatch: (() -> Unit)? = null,
     isWatch: Boolean = false,
     onWatchTogether: (() -> Unit)? = null,
+    onWatchSettings: (() -> Unit)? = null,
 ) {
     Row(
         Modifier
@@ -458,6 +462,15 @@ private fun Header(
         }
         Text("Волна", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
         if (isWatch) {
+            onWatchSettings?.let {
+                IconButton(onClick = it) {
+                    Icon(
+                        painterResource(R.drawable.ic_more_vert),
+                        contentDescription = "Настройки просмотра",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                    )
+                }
+            }
             onWatchTogether?.let {
                 IconButton(onClick = it) {
                     Icon(painterResource(R.drawable.ic_people), contentDescription = "Смотреть вместе")

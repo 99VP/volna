@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -27,6 +28,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -110,6 +112,7 @@ fun WatchScreen(
     onBack: () -> Unit,
     onFullscreen: (Boolean) -> Unit,
     shareRequest: Int,
+    settingsRequest: Int,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -150,6 +153,10 @@ fun WatchScreen(
     var qualityOptions by remember { mutableStateOf<List<Int>>(emptyList()) }
     var resultsExpanded by remember { mutableStateOf(false) }
     var controlsVisible by remember { mutableStateOf(true) }
+    var settingsDialog by remember { mutableStateOf(false) }
+    var seekFeedback by remember { mutableIntStateOf(0) }
+    var seekFeedbackLeft by remember { mutableStateOf(true) }
+    var seekFeedbackKey by remember { mutableIntStateOf(0) }
     var speed by remember { mutableFloatStateOf(1f) }
     var seekOnReady by remember { mutableLongStateOf(0L) }
     var fallbackTried by remember { mutableStateOf(false) }
@@ -486,6 +493,10 @@ fun WatchScreen(
         }
     }
 
+    LaunchedEffect(settingsRequest) {
+        if (settingsRequest > 0) settingsDialog = true
+    }
+
     LaunchedEffect(savedRoom, savedRoomServer) {
         val code = savedRoom?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
         val base = savedRoomServer?.takeIf { it.isNotBlank() } ?: configuredServer
@@ -608,22 +619,25 @@ fun WatchScreen(
                 },
                 onTap = {
                     if (fullscreen) {
-                        if (!controlsVisible) controlsVisible = true
-                        else if (player.isPlaying) player.pause() else player.play()
+                        controlsVisible = !controlsVisible
                     } else {
-                        if (!player.isPlaying) player.play()
-                        controlsVisible = true
-                        onFullscreen(true)
+                        if (player.isPlaying) player.pause() else player.play()
                     }
                 },
                 onDoubleTap = { offset ->
-                    val delta = when {
-                        offset.x < size.width / 3f -> -5000L
-                        offset.x > size.width * 2f / 3f -> 5000L
-                        else -> 0L
-                    }
-                    if (delta != 0L) {
-                        player.seekTo((player.currentPosition + delta).coerceAtLeast(0L))
+                    when {
+                        offset.x < size.width / 3f -> {
+                            player.seekTo((player.currentPosition - 5000L).coerceAtLeast(0L))
+                            seekFeedback -= 5
+                            seekFeedbackLeft = true
+                            seekFeedbackKey++
+                        }
+                        offset.x > size.width * 2f / 3f -> {
+                            player.seekTo(player.currentPosition + 5000L)
+                            seekFeedback += 5
+                            seekFeedbackLeft = false
+                            seekFeedbackKey++
+                        }
                     }
                 },
             )
@@ -642,6 +656,65 @@ fun WatchScreen(
             )
         }
 
+    LaunchedEffect(seekFeedbackKey) {
+        if (seekFeedback != 0) {
+            delay(900)
+            seekFeedback = 0
+        }
+    }
+
+    if (settingsDialog) {
+        AlertDialog(
+            onDismissRequest = { settingsDialog = false },
+            title = { Text("Настройки просмотра") },
+            text = {
+                Column {
+                    Text("Скорость", style = MaterialTheme.typography.labelMedium)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(SPEEDS) { s ->
+                            FilterChip(
+                                selected = speed == s,
+                                onClick = { speed = s; player.setPlaybackSpeed(s) },
+                                label = { Text(if (s == 1f) "1×" else "${s}×") },
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Text("Качество", style = MaterialTheme.typography.labelMedium)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        item {
+                            FilterChip(
+                                selected = quality == null,
+                                onClick = {
+                                    fallbackTried = false
+                                    qualityReload = player.mediaItemCount > 0
+                                    quality = null
+                                    playNonce++
+                                },
+                                label = { Text("Авто") },
+                            )
+                        }
+                        items(qualityOptions) { q ->
+                            FilterChip(
+                                selected = quality == q,
+                                onClick = {
+                                    fallbackTried = false
+                                    qualityReload = player.mediaItemCount > 0
+                                    quality = q
+                                    playNonce++
+                                },
+                                label = { Text("${q}p") },
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = { settingsDialog = false }) { Text("Готово") }
+            },
+        )
+    }
+
     val videoModifier = if (fullscreen) {
         Modifier.fillMaxSize().then(gestureModifier)
     } else {
@@ -654,7 +727,7 @@ fun WatchScreen(
     if (fullscreen) {
         CompositionLocalProvider(LocalContentColor provides Color.White) {
             Box(Modifier.fillMaxSize().background(Color.Black)) {
-                WatchVideoSurface(player, resolved, loading, currentUrl, videoModifier)
+                WatchVideoSurface(player, resolved, loading, currentUrl, videoModifier, seekFeedback, seekFeedbackLeft)
                 AnimatedVisibility(
                     visible = controlsVisible,
                     modifier = Modifier.align(Alignment.TopCenter),
@@ -671,11 +744,18 @@ fun WatchScreen(
                         }
                         Box(Modifier.weight(1f)) {
                             MarqueeTitle(
-                                text = resolved?.title ?: "Просмотр",
+                                text = resolved?.title.orEmpty(),
                                 style = MaterialTheme.typography.titleMedium,
                                 color = Color.White,
                                 textAlign = TextAlign.Start,
                                 modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                        IconButton(onClick = { settingsDialog = true }) {
+                            Icon(
+                                painterResource(R.drawable.ic_more_vert),
+                                "Настройки просмотра",
+                                tint = Color.White.copy(alpha = 0.65f),
                             )
                         }
                         IconButton(onClick = { share() }) {
@@ -739,14 +819,14 @@ fun WatchScreen(
 
 
     Column(Modifier.fillMaxSize()) {
-        WatchVideoSurface(player, resolved, loading, currentUrl, videoModifier)
+        WatchVideoSurface(player, resolved, loading, currentUrl, videoModifier, seekFeedback, seekFeedbackLeft)
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(Modifier.weight(1f)) {
                 MarqueeTitle(
-                    text = resolved?.title ?: "Просмотр",
+                    text = resolved?.title.orEmpty(),
                     style = MaterialTheme.typography.titleMedium,
                     textAlign = TextAlign.Start,
                     modifier = Modifier.fillMaxWidth(),
@@ -802,6 +882,7 @@ fun WatchScreen(
             fullscreen = false,
             onFullscreen = { controlsVisible = true; onFullscreen(true) },
         )
+        Spacer(Modifier.height(10.dp))
 
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp),
@@ -869,7 +950,7 @@ fun WatchScreen(
                     }
                 }
                 val shown = if (resultsExpanded) searchResults else searchResults.take(2)
-                items(shown, key = { it.id }) { track ->
+                items(shown, key = { "s-${it.id}" }) { track ->
                     VideoRow(
                         track = track,
                         onPlay = {
@@ -902,7 +983,7 @@ fun WatchScreen(
                     )
                 }
             }
-            items(videoQueue, key = { it.id }) { track ->
+            items(videoQueue, key = { "q-${it.id}" }) { track ->
                 VideoRow(
                     track = track,
                     onPlay = {
@@ -923,6 +1004,8 @@ private fun WatchVideoSurface(
     loading: Boolean,
     currentUrl: String?,
     modifier: Modifier,
+    seekFeedback: Int,
+    seekFeedbackLeft: Boolean,
 ) {
     Box(modifier.background(Color.Black), contentAlignment = Alignment.Center) {
         AndroidView(
@@ -945,6 +1028,22 @@ private fun WatchVideoSurface(
         }
         if (loading) {
             LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.BottomCenter))
+        }
+        if (seekFeedback != 0) {
+            Box(
+                Modifier
+                    .align(if (seekFeedbackLeft) Alignment.CenterStart else Alignment.CenterEnd)
+                    .padding(horizontal = 28.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.55f))
+                    .padding(horizontal = 18.dp, vertical = 12.dp),
+            ) {
+                Text(
+                    if (seekFeedback > 0) "+$seekFeedback с" else "$seekFeedback с",
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                )
+            }
         }
     }
 }
@@ -969,7 +1068,10 @@ private fun PlayerLine(
         onValueChangeFinished = onDragEnd,
         modifier = Modifier.padding(horizontal = 4.dp),
     )
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
         Text(fmtTime(if (dragging) (dragFraction * duration).toLong() else positionMs), style = MaterialTheme.typography.labelSmall)
         Text(fmtTime(duration), style = MaterialTheme.typography.labelSmall)
     }
@@ -989,32 +1091,46 @@ private fun WatchControls(
     fullscreen: Boolean,
     onFullscreen: () -> Unit,
 ) {
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceEvenly,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        SpeedControl(speed, onSpeed)
-        OutlinedIconButton(onClick = onPrev, modifier = Modifier.size(48.dp)) {
-            Icon(painterResource(R.drawable.ic_prev), "Предыдущее видео", modifier = Modifier.size(26.dp))
+    Box(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.align(Alignment.Center),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedIconButton(onClick = onPrev, modifier = Modifier.size(48.dp)) {
+                Icon(painterResource(R.drawable.ic_prev), "Предыдущее видео", modifier = Modifier.size(26.dp))
+            }
+            Spacer(Modifier.width(6.dp))
+            FilledIconButton(
+                onClick = { if (player.isPlaying) player.pause() else player.play() },
+                modifier = Modifier.size(62.dp),
+            ) {
+                Icon(
+                    painterResource(if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play),
+                    "Играть/пауза",
+                    modifier = Modifier.size(34.dp),
+                )
+            }
+            Spacer(Modifier.width(6.dp))
+            OutlinedIconButton(onClick = onNext, modifier = Modifier.size(48.dp)) {
+                Icon(painterResource(R.drawable.ic_next), "Следующее видео", modifier = Modifier.size(26.dp))
+            }
         }
-        FilledIconButton(onClick = { if (player.isPlaying) player.pause() else player.play() }, modifier = Modifier.size(60.dp)) {
-            Icon(
-                painterResource(if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play),
-                "Играть/пауза",
-                modifier = Modifier.size(32.dp),
-            )
+        Box(Modifier.align(Alignment.CenterStart)) {
+            SpeedControl(speed, onSpeed)
         }
-        OutlinedIconButton(onClick = onNext, modifier = Modifier.size(48.dp)) {
-            Icon(painterResource(R.drawable.ic_next), "Следующее видео", modifier = Modifier.size(26.dp))
-        }
-        QualityControl(quality, qualities, onQuality)
-        OutlinedIconButton(onClick = onFullscreen, modifier = Modifier.size(46.dp)) {
-            Icon(
-                painterResource(if (fullscreen) R.drawable.ic_fullscreen_exit else R.drawable.ic_fullscreen),
-                if (fullscreen) "Свернуть" else "На весь экран",
-                modifier = Modifier.size(24.dp),
-            )
+        Row(
+            Modifier.align(Alignment.CenterEnd),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            QualityControl(quality, qualities, onQuality)
+            OutlinedIconButton(onClick = onFullscreen, modifier = Modifier.size(46.dp)) {
+                Icon(
+                    painterResource(if (fullscreen) R.drawable.ic_fullscreen_exit else R.drawable.ic_fullscreen),
+                    if (fullscreen) "Свернуть" else "На весь экран",
+                    modifier = Modifier.size(24.dp),
+                )
+            }
         }
     }
 }
