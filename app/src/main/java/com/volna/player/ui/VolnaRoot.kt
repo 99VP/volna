@@ -18,9 +18,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.background
@@ -346,15 +343,14 @@ fun VolnaRoot(
             }
             AnimatedVisibility(
                 visible = showSearch,
-                enter = scaleIn(
-                    initialScale = 0.88f,
-                    animationSpec = tween(480, easing = FastOutSlowInEasing),
-                    transformOrigin = TransformOrigin(1f, 0f),
-                ) + fadeIn(tween(400, easing = FastOutSlowInEasing)),
-                exit = scaleOut(
-                    animationSpec = tween(240),
-                    transformOrigin = TransformOrigin(1f, 0f),
-                ) + fadeOut(tween(180)),
+                enter = slideInVertically(
+                    initialOffsetY = { -it },
+                    animationSpec = tween(360, easing = FastOutSlowInEasing),
+                ) + fadeIn(tween(220, easing = FastOutSlowInEasing)),
+                exit = slideOutVertically(
+                    targetOffsetY = { -it },
+                    animationSpec = tween(220, easing = FastOutSlowInEasing),
+                ) + fadeOut(tween(150)),
                 modifier = Modifier.align(Alignment.TopCenter),
             ) {
                 SearchOverlay(

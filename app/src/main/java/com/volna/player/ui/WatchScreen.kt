@@ -3,11 +3,17 @@ package com.volna.player.ui
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -672,6 +678,14 @@ fun WatchScreen(
                 AnimatedVisibility(
                     visible = controlsVisible,
                     modifier = Modifier.align(Alignment.TopCenter),
+                    enter = slideInVertically(
+                        initialOffsetY = { -it },
+                        animationSpec = tween(260),
+                    ) + fadeIn(tween(180)),
+                    exit = slideOutVertically(
+                        targetOffsetY = { -it },
+                        animationSpec = tween(220),
+                    ) + fadeOut(tween(150)),
                 ) {
                     Row(
                         Modifier
@@ -700,6 +714,14 @@ fun WatchScreen(
                 AnimatedVisibility(
                     visible = controlsVisible,
                     modifier = Modifier.align(Alignment.BottomCenter),
+                    enter = slideInVertically(
+                        initialOffsetY = { it },
+                        animationSpec = tween(260),
+                    ) + fadeIn(tween(180)),
+                    exit = slideOutVertically(
+                        targetOffsetY = { it },
+                        animationSpec = tween(220),
+                    ) + fadeOut(tween(150)),
                 ) {
                     Column(
                         Modifier
@@ -819,7 +841,7 @@ fun WatchScreen(
         Spacer(Modifier.height(10.dp))
 
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+            Modifier.fillMaxWidth().padding(start = 12.dp, end = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             OutlinedTextField(
@@ -861,7 +883,7 @@ fun WatchScreen(
                 },
                 shape = CircleShape,
                 enabled = searchQuery.isNotBlank(),
-                modifier = Modifier.size(48.dp),
+                modifier = Modifier.size(44.dp),
             ) {
                 Icon(painterResource(R.drawable.ic_add), "В очередь")
             }
@@ -1019,45 +1041,74 @@ private fun WatchControls(
     fullscreen: Boolean,
     onFullscreen: () -> Unit,
 ) {
-    Box(Modifier.fillMaxWidth()) {
-        Row(
-            Modifier.align(Alignment.Center),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            OutlinedIconButton(onClick = onPrev, modifier = Modifier.size(48.dp)) {
-                Icon(painterResource(R.drawable.ic_prev), "Предыдущее видео", modifier = Modifier.size(26.dp))
+    val speedControl: @Composable () -> Unit = { SpeedControl(speed, onSpeed) }
+    val qualityControl: @Composable () -> Unit = {
+        QualityControl(quality, qualities, onQuality)
+    }
+    val fullscreenButton: @Composable () -> Unit = {
+        OutlinedIconButton(onClick = onFullscreen, modifier = Modifier.size(40.dp)) {
+            Icon(
+                painterResource(if (fullscreen) R.drawable.ic_fullscreen_exit else R.drawable.ic_fullscreen),
+                if (fullscreen) "Свернуть" else "На весь экран",
+                modifier = Modifier.size(22.dp),
+            )
+        }
+    }
+    val transport: @Composable () -> Unit = {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedIconButton(onClick = onPrev, modifier = Modifier.size(42.dp)) {
+                Icon(painterResource(R.drawable.ic_prev), "Предыдущее видео", modifier = Modifier.size(22.dp))
             }
-            Spacer(Modifier.width(6.dp))
+            Spacer(Modifier.width(5.dp))
             FilledIconButton(
                 onClick = { if (player.isPlaying) player.pause() else player.play() },
-                modifier = Modifier.size(62.dp),
+                modifier = Modifier.size(58.dp),
             ) {
                 Icon(
                     painterResource(if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play),
                     "Играть/пауза",
-                    modifier = Modifier.size(34.dp),
+                    modifier = Modifier.size(32.dp),
                 )
             }
-            Spacer(Modifier.width(6.dp))
-            OutlinedIconButton(onClick = onNext, modifier = Modifier.size(48.dp)) {
-                Icon(painterResource(R.drawable.ic_next), "Следующее видео", modifier = Modifier.size(26.dp))
+            Spacer(Modifier.width(5.dp))
+            OutlinedIconButton(onClick = onNext, modifier = Modifier.size(42.dp)) {
+                Icon(painterResource(R.drawable.ic_next), "Следующее видео", modifier = Modifier.size(22.dp))
             }
         }
-        Box(Modifier.align(Alignment.CenterStart)) {
-            SpeedControl(speed, onSpeed)
-        }
-        Row(
-            Modifier.align(Alignment.CenterEnd),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            QualityControl(quality, qualities, onQuality)
-            OutlinedIconButton(onClick = onFullscreen, modifier = Modifier.size(46.dp)) {
-                Icon(
-                    painterResource(if (fullscreen) R.drawable.ic_fullscreen_exit else R.drawable.ic_fullscreen),
-                    if (fullscreen) "Свернуть" else "На весь экран",
-                    modifier = Modifier.size(24.dp),
-                )
+    }
+
+    BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+        if (maxWidth < 330.dp) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    speedControl()
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        qualityControl()
+                        fullscreenButton()
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                transport()
+            }
+        } else {
+            Box(Modifier.fillMaxWidth()) {
+                Box(Modifier.align(Alignment.CenterStart)) { speedControl() }
+                Box(Modifier.align(Alignment.Center)) { transport() }
+                Row(
+                    Modifier.align(Alignment.CenterEnd),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    qualityControl()
+                    fullscreenButton()
+                }
             }
         }
     }
@@ -1067,8 +1118,8 @@ private fun WatchControls(
 private fun SpeedControl(speed: Float, onSpeed: (Float) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
-        OutlinedIconButton(onClick = { open = true }, modifier = Modifier.size(46.dp)) {
-            Text(if (speed == 1f) "1×" else "${speed}×", style = MaterialTheme.typography.labelLarge)
+        OutlinedIconButton(onClick = { open = true }, modifier = Modifier.size(40.dp)) {
+            Text(if (speed == 1f) "1×" else "${speed}×", style = MaterialTheme.typography.labelSmall)
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             SPEEDS.forEach { s ->
@@ -1086,7 +1137,7 @@ private fun QualityControl(quality: Int?, qualities: List<Int>, onQuality: (Int?
     var open by remember { mutableStateOf(false) }
     val all = (qualities + listOfNotNull(quality)).distinct().sortedDescending()
     Box {
-        OutlinedIconButton(onClick = { open = true }, modifier = Modifier.size(46.dp)) {
+        OutlinedIconButton(onClick = { open = true }, modifier = Modifier.size(40.dp)) {
             Text(
                 quality?.let { "${it}p" } ?: "Авто",
                 style = MaterialTheme.typography.labelSmall,
