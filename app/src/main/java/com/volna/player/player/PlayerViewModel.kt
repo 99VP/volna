@@ -1081,6 +1081,7 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
                 if (generation != similarGeneration) return@launch
                 val recent = recentlyHeard()
                 val cc = _controller.value ?: return@launch
+                val wasPlaying = cc.isPlaying
                 val position = cc.currentPosition.coerceAtLeast(0L)
                 val seen = HashSet<String>()
                 seen.add(OnlineRepository.signature(track))
@@ -1101,7 +1102,7 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
                 val items = ordered.map { TrackMediaItem.toMediaItem(it) }
                 cc.setMediaItems(items, 0, position)
                 cc.prepare()
-                cc.play()
+                if (wasPlaying) cc.play()
             } catch (_: Exception) {
             } finally {
                 if (generation == similarGeneration) {

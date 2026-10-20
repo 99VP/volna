@@ -24,6 +24,12 @@ import java.net.SocketAddress
 import java.net.URI
 import java.util.concurrent.TimeUnit
 
+data class ProtocolTest(
+    val name: String,
+    val ok: Boolean,
+    val elapsedMs: Long,
+)
+
 enum class BypassState {
     /** Пользователь выключил обход в настройках. */
     DISABLED,
@@ -222,6 +228,25 @@ object ProxyRuntime {
         stop()
         lastCheckAt = System.currentTimeMillis()
         _state.value = BypassState.FAILED
+    }
+
+    /** Диагностика: по очереди проверяет три стратегии ByeDPI. */
+    suspend fun testProtocols(): List<ProtocolTest> = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            stop()
+            val names = listOf("disorder", "split", "fake")
+            val out = ArrayList<ProtocolTest>()
+            for (i in 0..2) {
+                val started = System.currentTimeMillis()
+                val running = proxy.start(i)
+                val ok = running && healthCheckSocks(proxy.port)
+                out.add(ProtocolTest(names[i], ok, System.currentTimeMillis() - started))
+                proxy.stop()
+            }
+            lastCheckAt = System.currentTimeMillis()
+            _state.value = BypassState.FAILED
+            out
+        }
     }
 
     private fun stop() {

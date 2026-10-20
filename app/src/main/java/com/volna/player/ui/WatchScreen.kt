@@ -145,6 +145,9 @@ fun WatchScreen(
     var quality by remember { mutableStateOf<Int?>(null) }
     var speed by remember { mutableFloatStateOf(1f) }
     var seekOnReady by remember { mutableLongStateOf(0L) }
+    var fallbackTried by remember { mutableStateOf(false) }
+    var nextIn by remember { mutableIntStateOf(0) }
+    var nextUrl by remember { mutableStateOf<String?>(null) }
 
     val httpClient = remember {
         OkHttpClient.Builder()
@@ -193,16 +196,22 @@ fun WatchScreen(
                     val index = currentVideoQueue.indexOfFirst { it.pageUrl == url || it.id == url }
                     val next = currentVideoQueue.getOrNull(index + 1)
                     if (next?.pageUrl != null) {
-                        currentUrl = next.pageUrl
-                        urlText = next.pageUrl.orEmpty()
-                        pendingStartMs = 0L
-                        resumePlaying = true
-                        playNonce++
+                        nextUrl = next.pageUrl
+                        nextIn = 5
                     }
                 }
             }
 
             override fun onPlayerError(e: PlaybackException) {
+                val h = resolved?.height ?: 0
+                if (h > 720 && !fallbackTried) {
+                    fallbackTried = true
+                    quality = 720
+                    qualityReload = player.mediaItemCount > 0
+                    playNonce++
+                    error = "1080p не запустился, включил 720p"
+                    return
+                }
                 error = when (e.errorCode) {
                     PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
                     PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
@@ -273,12 +282,26 @@ fun WatchScreen(
     }
 
     fun startUrl(url: String) {
+        nextIn = 0
+        nextUrl = null
+        fallbackTried = false
         urlText = url
         currentUrl = url
         pendingStartMs = 0L
         qualityReload = false
         resumePlaying = true
         playNonce++
+    }
+
+    LaunchedEffect(nextIn) {
+        if (nextIn <= 0) return@LaunchedEffect
+        delay(1000)
+        nextIn--
+        if (nextIn <= 0) {
+            val target = nextUrl
+            nextUrl = null
+            if (target != null) startUrl(target)
+        }
     }
 
     fun togglePlay() {
@@ -383,6 +406,7 @@ fun WatchScreen(
                 roomDialog = false
             }.onFailure {
                 roomError = it.message ?: "Не удалось создать комнату"
+                roomDialog = true
             }
             roomBusy = false
         }
@@ -422,10 +446,10 @@ fun WatchScreen(
 
     LaunchedEffect(shareRequest) {
         if (shareRequest > 0) {
-            if (configuredServer.isBlank()) {
+            if (configuredServer.isBlank() || currentUrl == null) {
                 roomDialog = true
             } else {
-                roomDialog = true
+                createRoom()
             }
         }
     }
@@ -667,6 +691,17 @@ fun WatchScreen(
                     .background(Color.Black.copy(alpha = 0.55f))
                     .padding(horizontal = 12.dp, vertical = 8.dp),
             ) {
+                if (nextIn > 0) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                        Text("Следующее через ${nextIn} с", style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = {
+                            val target = nextUrl
+                            nextIn = 0
+                            nextUrl = null
+                            if (target != null) startUrl(target)
+                        }) { Text("Сейчас") }
+                    }
+                }
                 PlayerLine(positionMs, durationMs, dragging, dragFraction,
                     onDrag = { dragging = true; dragFraction = it },
                     onDragEnd = {
@@ -719,6 +754,17 @@ fun WatchScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                 textAlign = TextAlign.Center,
             )
+        }
+        if (nextIn > 0) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                Text("Следующее через ${nextIn} с", style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = {
+                    val target = nextUrl
+                    nextIn = 0
+                    nextUrl = null
+                    if (target != null) startUrl(target)
+                }) { Text("Сейчас") }
+            }
         }
         PlayerLine(
             positionMs = positionMs,
@@ -805,6 +851,7 @@ fun WatchScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text("Очередь видео", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { roomDialog = true }) { Text("Войти по коду") }
                     if (videoQueue.isNotEmpty()) {
                         TextButton(onClick = { vm.clearVideoQueue() }) { Text("Очистить") }
                     }

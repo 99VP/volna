@@ -1403,6 +1403,11 @@ fun SettingsScreen(vm: PlayerViewModel, onBack: () -> Unit) {
 
     var showMines by remember { mutableStateOf(false) }
     var showSudoku by remember { mutableStateOf(false) }
+    var showDiagnostics by remember { mutableStateOf(false) }
+    if (showDiagnostics) {
+        DiagnosticsScreen(onBack = { showDiagnostics = false })
+        return
+    }
     if (showMines) {
         MinesweeperScreen(onBack = { showMines = false })
         return
@@ -1555,6 +1560,8 @@ fun SettingsScreen(vm: PlayerViewModel, onBack: () -> Unit) {
                             context.imageLoader.diskCache?.clear()
                         }
                     }) { Text("Очистить кэш") }
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(onClick = { showDiagnostics = true }) { Text("Диагностика") }
 
                     Spacer(Modifier.height(28.dp))
                     Text(
