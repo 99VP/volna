@@ -19,6 +19,10 @@ object UpdateDownloadManager {
         val url = info.apkUrl ?: throw IllegalStateException("В релизе нет APK")
         val dm = context.getSystemService(DownloadManager::class.java)
             ?: throw IllegalStateException("DownloadManager недоступен")
+        val dir = File(
+            context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS),
+            "volna-update",
+        ).apply { mkdirs() }
         val name = "Volna-${info.version}-${info.buildId.ifBlank { "new" }}.apk"
         val request = DownloadManager.Request(Uri.parse(url))
             .setTitle("Обновление Волны ${info.version}")
@@ -35,10 +39,6 @@ object UpdateDownloadManager {
             .setAllowedOverMetered(true)
             .setAllowedOverRoaming(false)
         val id = dm.enqueue(request)
-        val dir = File(
-            context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS),
-            "volna-update",
-        )
         context.getSharedPreferences("volna_update", Context.MODE_PRIVATE)
             .edit()
             .putLong("downloadId", id)
@@ -48,6 +48,17 @@ object UpdateDownloadManager {
     }
 
     fun installDownloaded(context: Context, downloadId: Long): Boolean {
+        if (!context.packageManager.canRequestPackageInstalls()) {
+            runCatching {
+                context.startActivity(
+                    Intent(
+                        android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:${context.packageName}"),
+                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }
+            return false
+        }
         val prefs = context.getSharedPreferences("volna_update", Context.MODE_PRIVATE)
         if (prefs.getLong("downloadId", -1L) != downloadId) return false
         val path = prefs.getString("downloadPath", null) ?: return false
@@ -84,6 +95,44 @@ object UpdateDownloadManager {
             status == DownloadManager.STATUS_RUNNING || status == DownloadManager.STATUS_PENDING
         }
     }
+
+    enum class State { NONE, RUNNING, DONE, FAILED }
+
+    fun state(context: Context): State {
+        val id = currentDownloadId(context)
+        if (id <= 0L) return State.NONE
+        val dm = context.getSystemService(DownloadManager::class.java) ?: return State.NONE
+        val cursor = dm.query(DownloadManager.Query().setFilterById(id)) ?: return State.NONE
+        return cursor.use {
+            if (!it.moveToFirst()) return@use State.NONE
+            when (it.getInt(it.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))) {
+                DownloadManager.STATUS_RUNNING, DownloadManager.STATUS_PENDING -> State.RUNNING
+                DownloadManager.STATUS_SUCCESSFUL -> State.DONE
+                DownloadManager.STATUS_FAILED -> State.FAILED
+                else -> State.NONE
+            }
+        }
+    }
+
+    fun progress(context: Context): Float? {
+        val id = currentDownloadId(context)
+        if (id <= 0L) return null
+        val dm = context.getSystemService(DownloadManager::class.java) ?: return null
+        val cursor = dm.query(DownloadManager.Query().setFilterById(id)) ?: return null
+        return cursor.use {
+            if (!it.moveToFirst()) return@use null
+            val done = it.getLong(
+                it.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR),
+            )
+            val total = it.getLong(
+                it.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES),
+            )
+            if (total > 0) (done.toFloat() / total).coerceIn(0f, 1f) else null
+        }
+    }
+
+    fun installCurrent(context: Context): Boolean =
+        installDownloaded(context, currentDownloadId(context))
 
     fun versionLabel(info: UpdateInfo): String =
         "${info.version} · ${info.buildId.ifBlank { BuildConfig.BUILD_ID }}"

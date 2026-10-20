@@ -1399,6 +1399,8 @@ fun SettingsScreen(vm: PlayerViewModel, onBack: () -> Unit) {
     val bypassState by ProxyRuntime.state.collectAsState()
     val updateInfo by vm.updateInfo.collectAsState()
     val updateProgress by vm.updateProgress.collectAsState()
+    val updateReady by vm.updateReady.collectAsState()
+    val updateDownloading by vm.updateDownloading.collectAsState()
     val updateError by vm.updateError.collectAsState()
 
     var showMines by remember { mutableStateOf(false) }
@@ -1519,23 +1521,36 @@ fun SettingsScreen(vm: PlayerViewModel, onBack: () -> Unit) {
                     updateInfo?.let { info ->
                         SectionTitle("Обновление")
                         Text(
-                            "Доступна версия ${info.version} (${info.buildId.ifBlank { "новая сборка" }}). У тебя ${BuildConfig.VERSION_NAME} · ${BuildConfig.BUILD_ID}.",
+                            "Доступно обновление ${BuildConfig.BUILD_ID} → ${info.buildId.ifBlank { info.version }}",
                             style = MaterialTheme.typography.bodyLarge,
                         )
-                        updateProgress?.let { p ->
+                        if (updateDownloading) {
+                            val p = updateProgress
+                            if (p == null) {
+                                LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 8.dp))
+                            } else {
+                                LinearProgressIndicator(
+                                    progress = { p },
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                )
+                            }
+                        } else if (updateReady) {
                             LinearProgressIndicator(
-                                progress = { p },
+                                progress = { 1f },
                                 modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                             )
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Button(
-                                onClick = { vm.downloadAndInstallUpdate() },
-                                enabled = updateProgress == null,
+                                onClick = {
+                                    if (updateReady) vm.installUpdate() else vm.downloadAndInstallUpdate()
+                                },
+                                enabled = !updateDownloading,
                             ) {
                                 Text(
                                     when {
-                                        updateProgress != null -> "Загрузка…"
+                                        updateReady -> "Установить обновление"
+                                        updateDownloading -> "Скачивается…"
                                         info.apkUrl == null -> "Открыть GitHub"
                                         else -> "Скачать обновление"
                                     },

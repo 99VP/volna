@@ -214,6 +214,12 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
     private val _updateProgress = MutableStateFlow<Float?>(null)
     val updateProgress: StateFlow<Float?> = _updateProgress.asStateFlow()
 
+    private val _updateReady = MutableStateFlow(false)
+    val updateReady: StateFlow<Boolean> = _updateReady.asStateFlow()
+
+    private val _updateDownloading = MutableStateFlow(false)
+    val updateDownloading: StateFlow<Boolean> = _updateDownloading.asStateFlow()
+
     private val _updateError = MutableStateFlow<String?>(null)
     val updateError: StateFlow<String?> = _updateError.asStateFlow()
 
@@ -334,6 +340,7 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
         _updateDismissed.value = appContext.getSharedPreferences("volna_update", android.content.Context.MODE_PRIVATE)
             .getString("dismissed", null)
         _videoQueue.value = store.videoQueue()
+        refreshUpdateDownloadState()
 
         val token = SessionToken(
             appContext,
@@ -713,7 +720,7 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
             _updateChecking.value = true
             _updateError.value = null
             runCatching { UpdateChecker.check(appContext, force) }
-                .onSuccess { _updateInfo.value = it }
+                .onSuccess { info -> if (info != null) _updateInfo.value = info }
                 .onFailure { _updateError.value = it.message ?: "Не удалось проверить обновления" }
             _updateChecking.value = false
         }
@@ -733,17 +740,75 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
             UpdateChecker.openRelease(appContext, info)
             return
         }
+        if (_updateReady.value) {
+            installUpdate()
+            return
+        }
         if (com.volna.player.update.UpdateDownloadManager.isDownloading(appContext)) {
             _toast.value = "Обновление уже скачивается в уведомлениях"
             return
         }
         _updateError.value = null
+        dismissUpdate()
         runCatching {
             com.volna.player.update.UpdateDownloadManager.enqueue(appContext, info)
         }.onSuccess {
             _toast.value = "Скачивание идёт в уведомлениях"
+            _updateDownloading.value = true
+            _updateProgress.value = 0f
+            startUpdatePolling()
         }.onFailure {
             _updateError.value = it.message ?: "Не удалось начать скачивание"
+        }
+    }
+
+    fun installUpdate() {
+        val ok = com.volna.player.update.UpdateDownloadManager.installCurrent(appContext)
+        if (!ok) {
+            _updateError.value = "Разрешите установку из этого приложения и нажмите ещё раз"
+        } else {
+            _toast.value = "Открываю установщик"
+        }
+    }
+
+    fun refreshUpdateDownloadState() {
+        val state = com.volna.player.update.UpdateDownloadManager.state(appContext)
+        _updateReady.value = state == com.volna.player.update.UpdateDownloadManager.State.DONE
+        _updateDownloading.value = state == com.volna.player.update.UpdateDownloadManager.State.RUNNING
+        _updateProgress.value = when (state) {
+            com.volna.player.update.UpdateDownloadManager.State.RUNNING ->
+                com.volna.player.update.UpdateDownloadManager.progress(appContext) ?: 0f
+            com.volna.player.update.UpdateDownloadManager.State.DONE -> 1f
+            else -> null
+        }
+        if (state == com.volna.player.update.UpdateDownloadManager.State.FAILED) {
+            _updateError.value = "Скачивание не удалось"
+        }
+    }
+
+    private fun startUpdatePolling() {
+        viewModelScope.launch {
+            while (true) {
+                delay(1000)
+                val state = com.volna.player.update.UpdateDownloadManager.state(appContext)
+                _updateProgress.value = when (state) {
+                    com.volna.player.update.UpdateDownloadManager.State.RUNNING ->
+                        com.volna.player.update.UpdateDownloadManager.progress(appContext) ?: 0f
+                    com.volna.player.update.UpdateDownloadManager.State.DONE -> 1f
+                    else -> null
+                }
+                if (state == com.volna.player.update.UpdateDownloadManager.State.DONE) {
+                    _updateReady.value = true
+                    _updateDownloading.value = false
+                    _toast.value = "Обновление скачано — нажмите «Установить»"
+                    break
+                }
+                if (state == com.volna.player.update.UpdateDownloadManager.State.FAILED) {
+                    _updateDownloading.value = false
+                    _updateError.value = "Скачивание не удалось"
+                    break
+                }
+            }
         }
     }
 

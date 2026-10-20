@@ -82,6 +82,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.volna.player.BuildConfig
 import com.volna.player.R
 import com.volna.player.net.ProxyRuntime
 import com.volna.player.player.PlayerViewModel
@@ -157,6 +158,7 @@ fun VolnaRoot(
                 vm.reloadLibrary()
                 // Проверяем VPN и заново поднимаем локальный обход, если нужно.
                 ProxyRuntime.refresh(context)
+                vm.refreshUpdateDownloadState()
                 vm.checkForUpdates()
             }
         }
@@ -190,7 +192,10 @@ fun VolnaRoot(
     }
 
     LaunchedEffect(showSettings) {
-        if (showSettings) vm.checkForUpdates(force = true)
+        if (showSettings) {
+            vm.refreshUpdateDownloadState()
+            vm.checkForUpdates(force = true)
+        }
     }
 
     LaunchedEffect(initialWatch) {
@@ -408,7 +413,7 @@ private fun UpdateBanner(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(
-                        "Доступна Волна ${info.version} · ${info.buildId.ifBlank { "новая сборка" }}",
+                        "Доступно обновление ${BuildConfig.BUILD_ID} → ${info.buildId.ifBlank { info.version }}",
                         style = MaterialTheme.typography.titleSmall,
                     )
                     Text(

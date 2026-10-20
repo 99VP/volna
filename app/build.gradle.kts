@@ -31,7 +31,7 @@ android {
         applicationId = "com.volna.player"
         minSdk = 29
         targetSdk = 34
-        versionCode = 81
+        versionCode = 80 + buildNumber
         versionName = "1.1"
         buildConfigField("String", "BUILD_ID", "\"$buildId\"")
         vectorDrawables { useSupportLibrary = true }
