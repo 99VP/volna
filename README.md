@@ -6,9 +6,8 @@ charts, local files, video viewing, and themes in one app.
 ## Features
 
 - Music search and a personal “My Wave” selection.
-- Charts, local library, downloads, and playlists.
-- Background playback, a queue, and a full-screen video player.
-- Themes, a system-adaptive icon, and in-app update checks.
+- Charts and a local music library.
+- Video viewing, themes, and in-app update checks.
 
 ## Install
 
