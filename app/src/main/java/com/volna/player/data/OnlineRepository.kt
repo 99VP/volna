@@ -35,6 +35,9 @@ object OnlineRepository {
 
     private const val MAX_SONG_SEC = 600L
 
+    /** Качества, которые показывает «Просмотр». Другие не добавляем. */
+    val WATCH_QUALITIES = listOf(1080, 720, 480)
+
     // ---- Поиск -----------------------------------------------------------
 
     suspend fun search(
@@ -731,17 +734,24 @@ object OnlineRepository {
             }
             val videoOnly = info.videoOnlyStreams
                 .filter { it.isUrl && !it.url.isNullOrBlank() }
-            val qualities = (progressive + videoOnly)
-                .map { it.height }
+            // Формат берём из реальных размеров потока, а не из длительности:
+            // вертикальный ролик может быть длиннее 90 секунд и наоборот.
+            val sized = all.filter { it.width > 0 && it.height > 0 }
+            val reference = sized.maxByOrNull { it.width.toLong() * it.height.toLong() }
+            val videoWidth = reference?.width ?: 0
+            val videoHeight = reference?.height ?: 0
+            val isVertical = when {
+                videoWidth > 0 && videoHeight > 0 -> videoHeight > videoWidth
+                else -> info.isShortFormContent
+            }
+            val available = all
+                .map { it.qualityLabel() }
                 .filter { it > 0 }
                 .distinct()
                 .sortedDescending()
-                .filter { it <= 1080 }
-                .ifEmpty { listOf(360) }
-            val target = (maxHeight ?: qualities.first()).coerceIn(
-                qualities.last(),
-                qualities.first(),
-            )
+            val maxAvailable = available.firstOrNull()?.coerceAtMost(1080) ?: 1080
+            val target = (maxHeight ?: maxAvailable).coerceIn(1, 1080)
+            val qualities = WATCH_QUALITIES
             if (dashUrl != null) {
                 return@withContext ResolvedVideo(
                     url = dashUrl,
@@ -753,21 +763,24 @@ object OnlineRepository {
                     hasVideo = true,
                     qualities = qualities,
                     height = target,
-                    isShort = info.duration in 1..90,
+                    isShort = info.isShortFormContent,
                     dashUrl = dashUrl,
+                    videoWidth = videoWidth,
+                    videoHeight = videoHeight,
+                    isVertical = isVertical,
                 )
             }
             val progressivePick = progressive
-                .filter { it.height in 1..target }
-                .maxByOrNull { it.height }
+                .filter { it.qualityLabel() in 1..target }
+                .maxByOrNull { it.qualityLabel() }
             val videoOnlyPick = videoOnly
-                .filter { it.height in 1..target }
-                .maxByOrNull { it.height }
+                .filter { it.qualityLabel() in 1..target }
+                .maxByOrNull { it.qualityLabel() }
 
             val video = when {
                 progressivePick == null -> videoOnlyPick
                 videoOnlyPick == null -> progressivePick
-                videoOnlyPick.height > progressivePick.height -> videoOnlyPick
+                videoOnlyPick.qualityLabel() > progressivePick.qualityLabel() -> videoOnlyPick
                 else -> progressivePick
             }
             if (video != null) {
@@ -778,6 +791,8 @@ object OnlineRepository {
                         pickAudio(info.audioStreams)?.let { (it.url ?: it.content).orEmpty() }
                             ?.takeIf { it.isNotBlank() }
                     } else null
+                    val streamWidth = video.width
+                    val streamHeight = video.height
                     return@withContext ResolvedVideo(
                         url = url,
                         mimeType = video.format?.mimeType,
@@ -789,8 +804,15 @@ object OnlineRepository {
                         audioUrl = audioUrl,
                         videoOnly = isVideoOnly,
                         qualities = qualities,
-                        height = video.height,
-                        isShort = info.duration in 1..90,
+                        height = video.qualityLabel(),
+                        isShort = info.isShortFormContent,
+                        videoWidth = streamWidth,
+                        videoHeight = streamHeight,
+                        isVertical = if (streamWidth > 0 && streamHeight > 0) {
+                            streamHeight > streamWidth
+                        } else {
+                            isVertical
+                        },
                     )
                 }
             }
@@ -809,9 +831,19 @@ object OnlineRepository {
                 hasVideo = false,
                 qualities = emptyList(),
                 height = 0,
-                isShort = info.duration in 1..90,
+                isShort = info.isShortFormContent,
             )
         }
+
+    /**
+     * Стандартная «высота» качества: у вертикального 1080x1920 это 1080,
+     * у горизонтального 1920x1080 — тоже 1080.
+     */
+    private fun VideoStream.qualityLabel(): Int {
+        if (width > 0 && height > 0) return minOf(width, height)
+        val parsed = getQuality()?.trim()?.takeWhile { it.isDigit() }?.toIntOrNull()
+        return parsed ?: height.coerceAtLeast(0)
+    }
 
     data class ResolvedVideo(
         val url: String,
@@ -827,6 +859,9 @@ object OnlineRepository {
         val qualities: List<Int> = emptyList(),
         val height: Int = 0,
         val isShort: Boolean = false,
+        val videoWidth: Int = 0,
+        val videoHeight: Int = 0,
+        val isVertical: Boolean = false,
     )
 
     /** Запасной источник: ищем тот же трек на SoundCloud и берём его поток. */

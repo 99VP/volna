@@ -76,6 +76,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
@@ -105,21 +106,32 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 private const val WATCH_PAGE_URL = "https://99vp.github.io/volna/watch/"
 
 enum class WatchFullscreenMode { NORMAL, LANDSCAPE, PORTRAIT }
 
-private fun WatchFullscreenMode.next(isShort: Boolean): WatchFullscreenMode = when (this) {
-    WatchFullscreenMode.NORMAL ->
-        if (isShort) WatchFullscreenMode.PORTRAIT else WatchFullscreenMode.LANDSCAPE
-    WatchFullscreenMode.LANDSCAPE ->
-        if (isShort) WatchFullscreenMode.NORMAL else WatchFullscreenMode.PORTRAIT
-    WatchFullscreenMode.PORTRAIT ->
-        if (isShort) WatchFullscreenMode.LANDSCAPE else WatchFullscreenMode.NORMAL
+private val SPEEDS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
+
+private fun sourceForUrl(url: String): TrackSource = when {
+    url.contains("youtu.be") || url.contains("youtube.com") -> TrackSource.YOUTUBE
+    url.contains("soundcloud.com") -> TrackSource.SOUNDCLOUD
+    else -> TrackSource.OTHER
 }
 
-private val SPEEDS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
+private fun trackForResolved(
+    r: OnlineRepository.ResolvedVideo,
+    url: String,
+): Track = Track(
+    id = url,
+    title = r.title.ifBlank { url },
+    artist = r.artist,
+    durationMs = r.durationMs,
+    pageUrl = url,
+    artworkUri = r.thumbUrl,
+    source = sourceForUrl(url),
+)
 
 @Composable
 fun WatchScreen(
@@ -166,7 +178,8 @@ fun WatchScreen(
     var resumePlaying by remember { mutableStateOf(vm.watchPlaying.value) }
     var qualityReload by remember { mutableStateOf(false) }
     var quality by remember { mutableStateOf<Int?>(null) }
-    var qualityOptions by remember { mutableStateOf<List<Int>>(emptyList()) }
+    val qualityOptions = OnlineRepository.WATCH_QUALITIES
+    var videoAspect by remember { mutableFloatStateOf(0f) }
     var resultsExpanded by remember { mutableStateOf(false) }
     var controlsVisible by remember { mutableStateOf(true) }
     var seekFeedback by remember { mutableIntStateOf(0) }
@@ -178,8 +191,23 @@ fun WatchScreen(
     var nextIn by remember { mutableIntStateOf(0) }
     var nextUrl by remember { mutableStateOf<String?>(null) }
 
+    fun currentAspect(): Float {
+        if (videoAspect > 0f) return videoAspect
+        val r = resolved
+        if (r != null && r.videoWidth > 0 && r.videoHeight > 0) {
+            return r.videoWidth.toFloat() / r.videoHeight
+        }
+        return 16f / 9f
+    }
+
+    fun isVerticalVideo(): Boolean = currentAspect() < 1f
+
     fun nextFullscreenMode(): WatchFullscreenMode =
-        fullscreenMode.next(resolved?.isShort == true)
+        if (fullscreenMode == WatchFullscreenMode.NORMAL) {
+            if (isVerticalVideo()) WatchFullscreenMode.PORTRAIT else WatchFullscreenMode.LANDSCAPE
+        } else {
+            WatchFullscreenMode.NORMAL
+        }
 
     fun changeFullscreen(target: WatchFullscreenMode) {
         if (target == fullscreenMode) return
@@ -222,11 +250,15 @@ fun WatchScreen(
             .build()
     }
     fun applyQuality(q: Int?) {
+        // «1080p» для вертикального ролика — это 1080 по ширине и 1920 по
+        // высоте, поэтому ограничение по одной стороне задаём с учётом формата.
+        val target = q ?: 1080
+        val aspect = currentAspect().coerceAtLeast(0.1f)
         val params = trackSelector.buildUponParameters()
-        if (q == null) {
-            params.setMaxVideoSize(1080, 1080)
+        if (aspect < 1f) {
+            params.setMaxVideoSize(target, (target / aspect).roundToInt().coerceAtLeast(target))
         } else {
-            params.setMaxVideoSize(q, q)
+            params.setMaxVideoSize((target * aspect).roundToInt().coerceAtLeast(target), target)
         }
         trackSelector.setParameters(params)
     }
@@ -238,6 +270,13 @@ fun WatchScreen(
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlaying = playing
+            }
+
+            override fun onVideoSizeChanged(videoSize: VideoSize) {
+                if (videoSize.width > 0 && videoSize.height > 0) {
+                    val aspect = videoSize.width * videoSize.pixelWidthHeightRatio / videoSize.height
+                    if (aspect > 0f) videoAspect = aspect
+                }
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -332,6 +371,7 @@ fun WatchScreen(
         if (link != currentUrl) {
             urlText = link
             currentUrl = link
+            videoAspect = 0f
             pendingStartMs = vm.watchPosition.value
             resumePlaying = vm.watchPlaying.value
             playNonce++
@@ -344,6 +384,7 @@ fun WatchScreen(
         fallbackTried = false
         urlText = url
         currentUrl = url
+        videoAspect = 0f
         pendingStartMs = 0L
         qualityReload = false
         resumePlaying = true
@@ -418,6 +459,7 @@ fun WatchScreen(
         if (state.video != currentUrl) {
             currentUrl = state.video
             urlText = state.video
+            videoAspect = 0f
             pendingStartMs = state.positionMs
             resumePlaying = state.playing
             qualityReload = false
@@ -514,6 +556,7 @@ fun WatchScreen(
                     isHost = false
                     currentUrl = state.video
                     urlText = state.video
+                    videoAspect = 0f
                     pendingStartMs = state.positionMs
                     resumePlaying = state.playing
                     qualityReload = false
@@ -570,6 +613,25 @@ fun WatchScreen(
         vm.addVideoToQueue(track)
     }
 
+    fun addLinkToQueue(link: String) {
+        scope.launch {
+            searching = true
+            error = null
+            val track = runCatching {
+                trackForResolved(OnlineRepository.resolveVideo(link), link)
+            }.getOrElse {
+                Track(
+                    id = link,
+                    title = link,
+                    pageUrl = link,
+                    source = sourceForUrl(link),
+                )
+            }
+            addToQueue(track)
+            searching = false
+        }
+    }
+
     LaunchedEffect(currentUrl, playNonce, quality) {
         val url = currentUrl?.trim().orEmpty()
         if (url.isEmpty()) return@LaunchedEffect
@@ -603,10 +665,12 @@ fun WatchScreen(
         }
         result.onSuccess { r ->
             resolved = r
-            qualityOptions = (qualityOptions + r.qualities + listOf(r.height))
-                .filter { it > 0 }
-                .distinct()
-                .sortedDescending()
+            if (r.videoWidth > 0 && r.videoHeight > 0) {
+                videoAspect = r.videoWidth.toFloat() / r.videoHeight
+            }
+            if (r.title.isNotBlank() && r.title != url) {
+                vm.updateVideoInQueue(trackForResolved(r, url))
+            }
             val metadata = MediaMetadata.Builder()
                 .setTitle(r.title.ifBlank { url })
                 .setArtist(r.artist)
@@ -697,14 +761,7 @@ fun WatchScreen(
         }
     }
 
-    val videoModifier = if (fullscreen) {
-        Modifier.fillMaxSize().then(gestureModifier)
-    } else {
-        Modifier
-            .fillMaxWidth()
-            .height(if (resolved?.isShort == true) 360.dp else 230.dp)
-            .then(gestureModifier)
-    }
+    val videoModifier = Modifier.fillMaxSize().then(gestureModifier)
 
     if (fullscreen) {
         CompositionLocalProvider(LocalContentColor provides Color.White) {
@@ -810,177 +867,190 @@ fun WatchScreen(
     }
 
 
-    Column(Modifier.fillMaxSize()) {
-        WatchVideoSurface(player, resolved, loading, currentUrl, videoModifier, seekFeedback, seekFeedbackLeft)
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(Modifier.weight(1f)) {
-                MarqueeTitle(
-                    text = resolved?.title.orEmpty(),
-                    style = MaterialTheme.typography.titleMedium,
-                    textAlign = TextAlign.Start,
-                    modifier = Modifier.fillMaxWidth(),
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val aspect = currentAspect().coerceAtLeast(0.1f)
+        val maxPreview = if (aspect < 1f) {
+            minOf(maxHeight * 0.40f, 280.dp)
+        } else {
+            minOf(maxHeight * 0.46f, 280.dp)
+        }
+        val previewHeight = (maxWidth / aspect).coerceAtMost(maxPreview).coerceAtLeast(120.dp)
+        val previewWidth = (previewHeight * aspect).coerceAtMost(maxWidth)
+
+        Column(Modifier.fillMaxSize()) {
+            Box(
+                Modifier.fillMaxWidth().height(previewHeight),
+                contentAlignment = Alignment.Center,
+            ) {
+                WatchVideoSurface(
+                    player = player,
+                    resolved = resolved,
+                    loading = loading,
+                    currentUrl = currentUrl,
+                    modifier = Modifier.width(previewWidth).height(previewHeight).then(gestureModifier),
+                    seekFeedback = seekFeedback,
+                    seekFeedbackLeft = seekFeedbackLeft,
                 )
             }
-        }
-        error?.let {
-            Text(
-                it,
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                textAlign = TextAlign.Center,
-            )
-        }
-        if (nextIn > 0) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                Text("Следующее через ${nextIn} с", style = MaterialTheme.typography.bodySmall)
-                TextButton(onClick = {
-                    val target = nextUrl
-                    nextIn = 0
-                    nextUrl = null
-                    if (target != null) startUrl(target)
-                }) { Text("Сейчас") }
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.weight(1f)) {
+                    MarqueeTitle(
+                        text = resolved?.title.orEmpty(),
+                        style = MaterialTheme.typography.titleMedium,
+                        textAlign = TextAlign.Start,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             }
-        }
-        PlayerLine(
-            positionMs = positionMs,
-            durationMs = durationMs,
-            dragging = dragging,
-            dragFraction = dragFraction,
-            onDrag = { dragging = true; dragFraction = it },
-            onDragEnd = {
-                if (durationMs > 0) player.seekTo((dragFraction * durationMs).toLong())
-                dragging = false
-            },
-        )
-        WatchControls(
-            player = player,
-            isPlaying = isPlaying,
-            speed = speed,
-            quality = quality,
-            qualities = qualityOptions,
-            onSpeed = { speed = it; player.setPlaybackSpeed(it) },
-            onQuality = {
-                fallbackTried = false
-                qualityReload = player.mediaItemCount > 0
-                quality = it
-                playNonce++
-            },
-            onPrev = { playQueue(-1) },
-            onNext = { playQueue(1) },
-            fullscreenMode = fullscreenMode,
-            nextFullscreenMode = nextFullscreenMode(),
-            onFullscreen = {
-                changeFullscreen(nextFullscreenMode())
-            },
-        )
-        Spacer(Modifier.height(10.dp))
-
-        Row(
-            Modifier.fillMaxWidth().padding(start = 12.dp, end = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = {
-                    searchQuery = it
-                    selectedResult = null
-                    searchResults = emptyList()
+            error?.let {
+                Text(
+                    it,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                    textAlign = TextAlign.Center,
+                )
+            }
+            if (nextIn > 0) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                    Text("Следующее через ${nextIn} с", style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = {
+                        val target = nextUrl
+                        nextIn = 0
+                        nextUrl = null
+                        if (target != null) startUrl(target)
+                    }) { Text("Сейчас") }
+                }
+            }
+            PlayerLine(
+                positionMs = positionMs,
+                durationMs = durationMs,
+                dragging = dragging,
+                dragFraction = dragFraction,
+                onDrag = { dragging = true; dragFraction = it },
+                onDragEnd = {
+                    if (durationMs > 0) player.seekTo((dragFraction * durationMs).toLong())
+                    dragging = false
                 },
-                modifier = Modifier.weight(1f),
-                placeholder = { Text("Поиск") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { runSearch() }),
             )
-            Spacer(Modifier.width(8.dp))
-            OutlinedIconButton(
-                onClick = {
-                    val q = searchQuery.trim()
-                    when {
-                        q.isEmpty() && selectedResult == null -> Unit
-                        q.startsWith("http") -> {
-                            addToQueue(
-                                Track(
-                                    id = q,
-                                    title = resolved?.title ?: q,
-                                    artist = resolved?.artist.orEmpty(),
-                                    pageUrl = q,
-                                    artworkUri = resolved?.thumbUrl,
-                                    source = TrackSource.YOUTUBE,
-                                ),
-                            )
+            WatchControls(
+                player = player,
+                isPlaying = isPlaying,
+                speed = speed,
+                quality = quality,
+                qualities = qualityOptions,
+                onSpeed = { speed = it; player.setPlaybackSpeed(it) },
+                onQuality = {
+                    fallbackTried = false
+                    qualityReload = player.mediaItemCount > 0
+                    quality = it
+                    playNonce++
+                },
+                onPrev = { playQueue(-1) },
+                onNext = { playQueue(1) },
+                fullscreenMode = fullscreenMode,
+                nextFullscreenMode = nextFullscreenMode(),
+                onFullscreen = {
+                    changeFullscreen(nextFullscreenMode())
+                },
+            )
+            Spacer(Modifier.height(10.dp))
+
+            Row(
+                Modifier.fillMaxWidth().padding(start = 12.dp, end = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = {
+                        searchQuery = it
+                        selectedResult = null
+                        searchResults = emptyList()
+                    },
+                    modifier = Modifier.weight(1f),
+                    placeholder = { Text("Поиск") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { runSearch() }),
+                )
+                Spacer(Modifier.width(8.dp))
+                OutlinedIconButton(
+                    onClick = {
+                        val q = searchQuery.trim()
+                        when {
+                            q.isEmpty() && selectedResult == null -> Unit
+                            q.startsWith("http") -> addLinkToQueue(q)
+                            else -> {
+                                val t = selectedResult ?: searchResults.firstOrNull()
+                                if (t != null) addToQueue(t) else runSearch()
+                            }
                         }
-                        else -> {
-                            val t = selectedResult ?: searchResults.firstOrNull()
-                            if (t != null) addToQueue(t) else runSearch()
+                    },
+                    shape = CircleShape,
+                    enabled = searchQuery.isNotBlank(),
+                    modifier = Modifier.size(44.dp),
+                ) {
+                    Icon(painterResource(R.drawable.ic_add), "В очередь")
+                }
+            }
+            if (searching) LinearProgressIndicator(Modifier.fillMaxWidth())
+
+            LazyColumn(Modifier.fillMaxSize()) {
+                if (searchResults.isNotEmpty()) {
+                    item {
+                        Row(
+                            Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "Найдено · ${searchResults.size}",
+                                style = MaterialTheme.typography.titleSmall,
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (searchResults.size > 2) {
+                                TextButton(onClick = { resultsExpanded = !resultsExpanded }) {
+                                    Text(if (resultsExpanded) "Свернуть" else "Ещё")
+                                }
+                            }
                         }
                     }
-                },
-                shape = CircleShape,
-                enabled = searchQuery.isNotBlank(),
-                modifier = Modifier.size(44.dp),
-            ) {
-                Icon(painterResource(R.drawable.ic_add), "В очередь")
-            }
-        }
-        if (searching) LinearProgressIndicator(Modifier.fillMaxWidth())
-
-        LazyColumn(Modifier.fillMaxSize()) {
-            if (searchResults.isNotEmpty()) {
+                    val shown = if (resultsExpanded) searchResults else searchResults.take(2)
+                    items(shown, key = { "s-${it.id}" }) { track ->
+                        VideoRow(
+                            track = track,
+                            onPlay = {
+                                selectedResult = track
+                                track.pageUrl?.let { startUrl(it) }
+                            },
+                            onAdd = { addToQueue(track) },
+                        )
+                    }
+                }
                 item {
                     Row(
                         Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            "Найдено · ${searchResults.size}",
-                            style = MaterialTheme.typography.titleSmall,
-                            modifier = Modifier.weight(1f),
-                        )
-                        if (searchResults.size > 2) {
-                            TextButton(onClick = { resultsExpanded = !resultsExpanded }) {
-                                Text(if (resultsExpanded) "Свернуть" else "Ещё")
-                            }
+                        Text("Очередь видео", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { roomDialog = true }) { Text("Войти по коду") }
+                        if (videoQueue.isNotEmpty()) {
+                            TextButton(onClick = { vm.clearVideoQueue() }) { Text("Очистить") }
                         }
                     }
                 }
-                val shown = if (resultsExpanded) searchResults else searchResults.take(2)
-                items(shown, key = { "s-${it.id}" }) { track ->
+                items(videoQueue, key = { "q-${it.id}" }) { track ->
                     VideoRow(
                         track = track,
                         onPlay = {
-                            selectedResult = track
                             track.pageUrl?.let { startUrl(it) }
                         },
-                        onAdd = { addToQueue(track) },
+                        onAdd = null,
+                        onRemove = { vm.removeVideoFromQueue(track) },
                     )
                 }
-            }
-            item {
-                Row(
-                    Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("Очередь видео", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-                    TextButton(onClick = { roomDialog = true }) { Text("Войти по коду") }
-                    if (videoQueue.isNotEmpty()) {
-                        TextButton(onClick = { vm.clearVideoQueue() }) { Text("Очистить") }
-                    }
-                }
-            }
-            items(videoQueue, key = { "q-${it.id}" }) { track ->
-                VideoRow(
-                    track = track,
-                    onPlay = {
-                        track.pageUrl?.let { startUrl(it) }
-                    },
-                    onAdd = null,
-                    onRemove = { vm.removeVideoFromQueue(track) },
-                )
             }
         }
     }
@@ -1086,15 +1156,15 @@ private fun WatchControls(
         QualityControl(quality, qualities, onQuality)
     }
     val fullscreenButton: @Composable () -> Unit = {
-        val icon = when (nextFullscreenMode) {
-            WatchFullscreenMode.NORMAL -> R.drawable.ic_fullscreen_exit
-            WatchFullscreenMode.LANDSCAPE -> R.drawable.ic_fullscreen
-            WatchFullscreenMode.PORTRAIT -> R.drawable.ic_fullscreen_portrait
+        val icon = when {
+            fullscreenMode != WatchFullscreenMode.NORMAL -> R.drawable.ic_fullscreen_exit
+            nextFullscreenMode == WatchFullscreenMode.PORTRAIT -> R.drawable.ic_fullscreen_portrait
+            else -> R.drawable.ic_fullscreen
         }
-        val label = when (nextFullscreenMode) {
-            WatchFullscreenMode.NORMAL -> "Выйти из полного экрана"
-            WatchFullscreenMode.LANDSCAPE -> "Горизонтальный полный экран"
-            WatchFullscreenMode.PORTRAIT -> "Вертикальный полный экран"
+        val label = when {
+            fullscreenMode != WatchFullscreenMode.NORMAL -> "Выйти из полного экрана"
+            nextFullscreenMode == WatchFullscreenMode.PORTRAIT -> "Вертикальный полный экран"
+            else -> "Горизонтальный полный экран"
         }
         OutlinedIconButton(onClick = onFullscreen, modifier = Modifier.size(40.dp)) {
             Icon(
@@ -1185,7 +1255,10 @@ private fun SpeedControl(speed: Float, onSpeed: (Float) -> Unit) {
 @Composable
 private fun QualityControl(quality: Int?, qualities: List<Int>, onQuality: (Int?) -> Unit) {
     var open by remember { mutableStateOf(false) }
-    val all = (qualities + listOfNotNull(quality)).distinct().sortedDescending()
+    val all = (qualities + listOfNotNull(quality))
+        .filter { it in OnlineRepository.WATCH_QUALITIES }
+        .distinct()
+        .sortedDescending()
     Box {
         OutlinedIconButton(onClick = { open = true }, modifier = Modifier.size(40.dp)) {
             Text(

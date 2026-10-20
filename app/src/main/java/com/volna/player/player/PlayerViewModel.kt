@@ -564,6 +564,30 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Обновляет название/обложку у ссылки, которая уже лежит в очереди. */
+    fun updateVideoInQueue(track: Track) {
+        var changed = false
+        val list = _videoQueue.value.map { old ->
+            if (LibraryStore.sameTrack(old, track)) {
+                changed = true
+                old.copy(
+                    title = track.title.ifBlank { old.title },
+                    artist = track.artist.ifBlank { old.artist },
+                    durationMs = if (track.durationMs > 0L) track.durationMs else old.durationMs,
+                    pageUrl = track.pageUrl ?: old.pageUrl,
+                    artworkUri = track.artworkUri ?: old.artworkUri,
+                    source = track.source,
+                )
+            } else {
+                old
+            }
+        }
+        if (changed) {
+            _videoQueue.value = list
+            runCatching { store.saveVideoQueue(list) }
+        }
+    }
+
     fun removeVideoFromQueue(track: Track) {
         val list = _videoQueue.value.filterNot { LibraryStore.sameTrack(it, track) }
         _videoQueue.value = list
