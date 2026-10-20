@@ -3,6 +3,8 @@
 package com.volna.player.ui
 
 import android.Manifest
+import android.app.Activity
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.os.Build
 import android.widget.Toast
@@ -72,6 +74,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -115,6 +120,33 @@ fun VolnaRoot(
 
     val pagerState = rememberPagerState(initialPage = PLAYER_PAGE) { 5 }
     val scope = rememberCoroutineScope()
+    val activity = context as? Activity
+
+    LaunchedEffect(watchFullscreen) {
+        val a = activity ?: return@LaunchedEffect
+        a.requestedOrientation = if (watchFullscreen) {
+            ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        } else {
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
+        val controller = WindowCompat.getInsetsController(a.window, a.window.decorView)
+        if (watchFullscreen) {
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+        } else {
+            controller.show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            val a = activity ?: return@onDispose
+            a.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            WindowCompat.getInsetsController(a.window, a.window.decorView)
+                .show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
 
     // при возврате в приложение перечитываем избранное/историю (лайк мог быть из уведомления)
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -147,7 +179,7 @@ fun VolnaRoot(
     BackHandler(enabled = showSearch) { showSearch = false }
     BackHandler(enabled = showSettings) { showSettings = false }
     BackHandler(enabled = !watchFullscreen && pagerState.currentPage == WATCH_PAGE) {
-        scope.launch { pagerState.animateScrollToPage(PLAYER_PAGE) }
+        scope.launch { pagerState.scrollToPage(PLAYER_PAGE) }
     }
     BackHandler(enabled = watchFullscreen) { watchFullscreen = false }
 
@@ -216,7 +248,7 @@ fun VolnaRoot(
                         if (!watchFullscreen) {
                             Column {
                                 MiniPlayer(vm) {
-                                    scope.launch { pagerState.animateScrollToPage(PLAYER_PAGE) }
+                                    scope.launch { pagerState.scrollToPage(PLAYER_PAGE) }
                                 }
                                 NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                                     val page = pagerState.currentPage
@@ -240,7 +272,7 @@ fun VolnaRoot(
                                     )
                                     NavigationBarItem(
                                         selected = page == PLAYER_PAGE || page == WATCH_PAGE,
-                                        onClick = { scope.launch { pagerState.animateScrollToPage(PLAYER_PAGE) } },
+                                        onClick = { scope.launch { pagerState.scrollToPage(PLAYER_PAGE) } },
                                         icon = { Icon(painterResource(R.drawable.ic_play), null) },
                                         label = { Text("Плеер") },
                                     )
@@ -281,7 +313,7 @@ fun VolnaRoot(
                         if (!watchFullscreen) {
                             Header(
                                 showBack = pagerState.currentPage != PLAYER_PAGE,
-                                onBack = { scope.launch { pagerState.animateScrollToPage(PLAYER_PAGE) } },
+                                onBack = { scope.launch { pagerState.scrollToPage(PLAYER_PAGE) } },
                                 onSearch = { showSearch = true },
                                 onWatch = {
                                     showSearch = false
@@ -314,7 +346,7 @@ fun VolnaRoot(
                                     vm = vm,
                                     fullscreen = watchFullscreen,
                                     onBack = {
-                                        scope.launch { pagerState.animateScrollToPage(PLAYER_PAGE) }
+                                        scope.launch { pagerState.scrollToPage(PLAYER_PAGE) }
                                     },
                                     onFullscreen = { watchFullscreen = it },
                                     shareRequest = shareWatchRequest,
@@ -350,7 +382,7 @@ fun VolnaRoot(
                     vm = vm,
                     onDismiss = { showSearch = false },
                     onPlayed = {
-                        scope.launch { pagerState.animateScrollToPage(PLAYER_PAGE) }
+                        scope.launch { pagerState.scrollToPage(PLAYER_PAGE) }
                         showSearch = false
                     },
                 )

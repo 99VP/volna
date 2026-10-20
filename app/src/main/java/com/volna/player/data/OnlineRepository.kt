@@ -725,8 +725,9 @@ object OnlineRepository {
             val info = StreamInfo.getInfo(service, pageUrl)
             val all = info.videoStreams
                 .filter { it.isUrl && !it.url.isNullOrBlank() }
-                .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }
-            val progressive = all.filter { !it.isVideoOnly }
+            val progressive = all.filter {
+                !it.isVideoOnly && it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP
+            }
             val videoOnly = all.filter { it.isVideoOnly }
             val qualities = (progressive + videoOnly)
                 .map { it.height }

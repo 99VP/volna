@@ -2,7 +2,9 @@ package com.volna.player.ui
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -24,16 +26,18 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -143,6 +147,9 @@ fun WatchScreen(
     var resumePlaying by remember { mutableStateOf(vm.watchPlaying.value) }
     var qualityReload by remember { mutableStateOf(false) }
     var quality by remember { mutableStateOf<Int?>(null) }
+    var qualityOptions by remember { mutableStateOf<List<Int>>(emptyList()) }
+    var resultsExpanded by remember { mutableStateOf(false) }
+    var controlsVisible by remember { mutableStateOf(true) }
     var speed by remember { mutableFloatStateOf(1f) }
     var seekOnReady by remember { mutableLongStateOf(0L) }
     var fallbackTried by remember { mutableStateOf(false) }
@@ -302,6 +309,13 @@ fun WatchScreen(
             nextUrl = null
             if (target != null) startUrl(target)
         }
+    }
+
+    fun playQueue(delta: Int) {
+        val url = currentUrl ?: return
+        val index = videoQueue.indexOfFirst { it.pageUrl == url || it.id == url }
+        val next = if (index < 0) videoQueue.getOrNull(0) else videoQueue.getOrNull(index + delta)
+        next?.pageUrl?.let { startUrl(it) }
     }
 
     fun togglePlay() {
@@ -495,6 +509,7 @@ fun WatchScreen(
                 .onSuccess {
                     searchResults = it
                     selectedResult = it.firstOrNull()
+                    resultsExpanded = false
                 }
                 .onFailure { error = it.message ?: "Поиск не удался" }
             searching = false
@@ -538,6 +553,10 @@ fun WatchScreen(
         }
         result.onSuccess { r ->
             resolved = r
+            qualityOptions = (qualityOptions + r.qualities + listOf(r.height))
+                .filter { it > 0 }
+                .distinct()
+                .sortedDescending()
             val metadata = MediaMetadata.Builder()
                 .setTitle(r.title.ifBlank { url })
                 .setArtist(r.artist)
@@ -588,7 +607,24 @@ fun WatchScreen(
                     }
                 },
                 onTap = {
-                    if (player.isPlaying) player.pause() else player.play()
+                    if (fullscreen) {
+                        if (!controlsVisible) controlsVisible = true
+                        else if (player.isPlaying) player.pause() else player.play()
+                    } else {
+                        if (!player.isPlaying) player.play()
+                        controlsVisible = true
+                        onFullscreen(true)
+                    }
+                },
+                onDoubleTap = { offset ->
+                    val delta = when {
+                        offset.x < size.width / 3f -> -5000L
+                        offset.x > size.width * 2f / 3f -> 5000L
+                        else -> 0L
+                    }
+                    if (delta != 0L) {
+                        player.seekTo((player.currentPosition + delta).coerceAtLeast(0L))
+                    }
                 },
             )
         }
@@ -606,51 +642,6 @@ fun WatchScreen(
             )
         }
 
-    if (roomDialog) {
-        AlertDialog(
-            onDismissRequest = { roomDialog = false },
-            title = { Text("Смотреть вместе") },
-            text = {
-                Column {
-                    OutlinedTextField(
-                        value = roomCode,
-                        onValueChange = { roomCode = it },
-                        placeholder = { Text("Код комнаты") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    roomId?.let {
-                        Text(
-                            "Комната: $it",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 8.dp),
-                        )
-                        TextButton(onClick = { share(it) }) { Text("Поделиться") }
-                    }
-                    Text(
-                        "Сервер: ${roomBase().ifBlank { "ntfy.sh" }}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                    roomError?.let {
-                        Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            },
-            confirmButton = {
-                Button(onClick = { createRoom() }, enabled = !roomBusy) { Text("Создать") }
-            },
-            dismissButton = {
-                Row {
-                    TextButton(onClick = { joinRoom() }, enabled = !roomBusy) { Text("Войти") }
-                    TextButton(onClick = { roomDialog = false }) { Text("Закрыть") }
-                }
-            },
-        )
-    }
-
     val videoModifier = if (fullscreen) {
         Modifier.fillMaxSize().then(gestureModifier)
     } else {
@@ -660,78 +651,92 @@ fun WatchScreen(
             .then(gestureModifier)
     }
 
-
     if (fullscreen) {
-        Box(Modifier.fillMaxSize().background(Color.Black)) {
-            WatchVideoSurface(player, resolved, loading, currentUrl, videoModifier)
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.TopCenter)
-                    .background(Color.Black.copy(alpha = 0.55f))
-                    .padding(horizontal = 4.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = onBack) {
-                    Icon(painterResource(R.drawable.ic_arrow_back), "Назад")
-                }
-                Text(
-                    resolved?.title ?: "Просмотр",
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                IconButton(onClick = { share() }) {
-                    Icon(painterResource(R.drawable.ic_people), "Смотреть вместе")
-                }
-                WatchMenu(
-                    qualities = resolved?.qualities.orEmpty(),
-                    speed = speed,
-                    onQuality = {
-                        qualityReload = player.mediaItemCount > 0
-                        quality = it
-                        playNonce++
-                    },
-                    onSpeed = {
-                        speed = it
-                        player.setPlaybackSpeed(it)
-                    },
-                )
-                IconButton(onClick = { onFullscreen(false) }) {
-                    Icon(painterResource(R.drawable.ic_fullscreen_exit), "Свернуть")
-                }
-            }
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.BottomCenter)
-                    .background(Color.Black.copy(alpha = 0.55f))
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-            ) {
-                if (nextIn > 0) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                        Text("Следующее через ${nextIn} с", style = MaterialTheme.typography.bodySmall)
-                        TextButton(onClick = {
-                            val target = nextUrl
-                            nextIn = 0
-                            nextUrl = null
-                            if (target != null) startUrl(target)
-                        }) { Text("Сейчас") }
+        CompositionLocalProvider(LocalContentColor provides Color.White) {
+            Box(Modifier.fillMaxSize().background(Color.Black)) {
+                WatchVideoSurface(player, resolved, loading, currentUrl, videoModifier)
+                AnimatedVisibility(
+                    visible = controlsVisible,
+                    modifier = Modifier.align(Alignment.TopCenter),
+                ) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .background(Color.Black.copy(alpha = 0.60f))
+                            .padding(horizontal = 4.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconButton(onClick = onBack) {
+                            Icon(painterResource(R.drawable.ic_arrow_back), "Назад")
+                        }
+                        Box(Modifier.weight(1f)) {
+                            MarqueeTitle(
+                                text = resolved?.title ?: "Просмотр",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = Color.White,
+                                textAlign = TextAlign.Start,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                        IconButton(onClick = { share() }) {
+                            Icon(painterResource(R.drawable.ic_people), "Смотреть вместе")
+                        }
                     }
                 }
-                PlayerLine(positionMs, durationMs, dragging, dragFraction,
-                    onDrag = { dragging = true; dragFraction = it },
-                    onDragEnd = {
-                        if (durationMs > 0) player.seekTo((dragFraction * durationMs).toLong())
-                        dragging = false
-                    },
-                )
-                WatchControls(player, isPlaying, speed)
+                AnimatedVisibility(
+                    visible = controlsVisible,
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                ) {
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .background(Color.Black.copy(alpha = 0.68f))
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                    ) {
+                        if (nextIn > 0) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                                Text("Следующее через ${nextIn} с", style = MaterialTheme.typography.bodySmall)
+                                TextButton(onClick = {
+                                    val target = nextUrl
+                                    nextIn = 0
+                                    nextUrl = null
+                                    if (target != null) startUrl(target)
+                                }) { Text("Сейчас") }
+                            }
+                        }
+                        PlayerLine(
+                            positionMs, durationMs, dragging, dragFraction,
+                            onDrag = { dragging = true; dragFraction = it },
+                            onDragEnd = {
+                                if (durationMs > 0) player.seekTo((dragFraction * durationMs).toLong())
+                                dragging = false
+                            },
+                        )
+                        WatchControls(
+                            player = player,
+                            isPlaying = isPlaying,
+                            speed = speed,
+                            quality = quality,
+                            qualities = qualityOptions,
+                            onSpeed = { speed = it; player.setPlaybackSpeed(it) },
+                            onQuality = {
+                                fallbackTried = false
+                                qualityReload = player.mediaItemCount > 0
+                                quality = it
+                                playNonce++
+                            },
+                            onPrev = { playQueue(-1) },
+                            onNext = { playQueue(1) },
+                            fullscreen = true,
+                            onFullscreen = { onFullscreen(false) },
+                        )
+                    }
+                }
             }
         }
         return
     }
+
 
     Column(Modifier.fillMaxSize()) {
         WatchVideoSurface(player, resolved, loading, currentUrl, videoModifier)
@@ -746,22 +751,6 @@ fun WatchScreen(
                     textAlign = TextAlign.Start,
                     modifier = Modifier.fillMaxWidth(),
                 )
-            }
-            WatchMenu(
-                qualities = resolved?.qualities.orEmpty(),
-                speed = speed,
-                onQuality = {
-                    qualityReload = player.mediaItemCount > 0
-                    quality = it
-                    playNonce++
-                },
-                onSpeed = {
-                    speed = it
-                    player.setPlaybackSpeed(it)
-                },
-            )
-            IconButton(onClick = { onFullscreen(true) }) {
-                Icon(painterResource(R.drawable.ic_fullscreen), "На весь экран")
             }
         }
         error?.let {
@@ -795,7 +784,24 @@ fun WatchScreen(
                 dragging = false
             },
         )
-        WatchControls(player, isPlaying, speed)
+        WatchControls(
+            player = player,
+            isPlaying = isPlaying,
+            speed = speed,
+            quality = quality,
+            qualities = qualityOptions,
+            onSpeed = { speed = it; player.setPlaybackSpeed(it) },
+            onQuality = {
+                fallbackTried = false
+                qualityReload = player.mediaItemCount > 0
+                quality = it
+                playNonce++
+            },
+            onPrev = { playQueue(-1) },
+            onNext = { playQueue(1) },
+            fullscreen = false,
+            onFullscreen = { controlsVisible = true; onFullscreen(true) },
+        )
 
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp),
@@ -846,13 +852,24 @@ fun WatchScreen(
         LazyColumn(Modifier.fillMaxSize()) {
             if (searchResults.isNotEmpty()) {
                 item {
-                    Text(
-                        "Найдено",
-                        style = MaterialTheme.typography.titleSmall,
-                        modifier = Modifier.padding(12.dp),
-                    )
+                    Row(
+                        Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "Найдено · ${searchResults.size}",
+                            style = MaterialTheme.typography.titleSmall,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (searchResults.size > 2) {
+                            TextButton(onClick = { resultsExpanded = !resultsExpanded }) {
+                                Text(if (resultsExpanded) "Свернуть" else "Ещё")
+                            }
+                        }
+                    }
                 }
-                items(searchResults, key = { it.id }) { track ->
+                val shown = if (resultsExpanded) searchResults else searchResults.take(2)
+                items(shown, key = { it.id }) { track ->
                     VideoRow(
                         track = track,
                         onPlay = {
@@ -963,71 +980,80 @@ private fun WatchControls(
     player: Player,
     isPlaying: Boolean,
     speed: Float,
+    quality: Int?,
+    qualities: List<Int>,
+    onSpeed: (Float) -> Unit,
+    onQuality: (Int?) -> Unit,
+    onPrev: () -> Unit,
+    onNext: () -> Unit,
+    fullscreen: Boolean,
+    onFullscreen: () -> Unit,
 ) {
     Row(
         Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Center,
+        horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = { player.seekTo((player.currentPosition - 5000).coerceAtLeast(0L)) }) {
-            Icon(painterResource(R.drawable.ic_prev), "−5 секунд")
+        SpeedControl(speed, onSpeed)
+        OutlinedIconButton(onClick = onPrev, modifier = Modifier.size(48.dp)) {
+            Icon(painterResource(R.drawable.ic_prev), "Предыдущее видео", modifier = Modifier.size(26.dp))
         }
-        IconButton(onClick = { if (player.isPlaying) player.pause() else player.play() }) {
+        FilledIconButton(onClick = { if (player.isPlaying) player.pause() else player.play() }, modifier = Modifier.size(60.dp)) {
             Icon(
                 painterResource(if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play),
                 "Играть/пауза",
-                modifier = Modifier.size(34.dp),
+                modifier = Modifier.size(32.dp),
             )
         }
-        IconButton(onClick = { player.seekTo(player.currentPosition + 5000) }) {
-            Icon(painterResource(R.drawable.ic_next), "+5 секунд")
+        OutlinedIconButton(onClick = onNext, modifier = Modifier.size(48.dp)) {
+            Icon(painterResource(R.drawable.ic_next), "Следующее видео", modifier = Modifier.size(26.dp))
         }
-        Text(
-            if (speed == 1f) "1×" else "${speed}×",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 8.dp),
-        )
+        QualityControl(quality, qualities, onQuality)
+        OutlinedIconButton(onClick = onFullscreen, modifier = Modifier.size(46.dp)) {
+            Icon(
+                painterResource(if (fullscreen) R.drawable.ic_fullscreen_exit else R.drawable.ic_fullscreen),
+                if (fullscreen) "Свернуть" else "На весь экран",
+                modifier = Modifier.size(24.dp),
+            )
+        }
     }
 }
 
 @Composable
-private fun WatchMenu(
-    qualities: List<Int>,
-    speed: Float,
-    onQuality: (Int?) -> Unit,
-    onSpeed: (Float) -> Unit,
-) {
+private fun SpeedControl(speed: Float, onSpeed: (Float) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
-        IconButton(onClick = { open = true }) {
-            Icon(painterResource(R.drawable.ic_more_vert), "Настройки просмотра")
+        OutlinedIconButton(onClick = { open = true }, modifier = Modifier.size(46.dp)) {
+            Text(if (speed == 1f) "1×" else "${speed}×", style = MaterialTheme.typography.labelLarge)
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            Text(
-                "Скорость",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-            )
             SPEEDS.forEach { s ->
                 DropdownMenuItem(
                     text = { Text(if (s == 1f) "Обычная" else "$s×") },
                     onClick = { onSpeed(s); open = false },
                 )
             }
-            HorizontalDivider()
+        }
+    }
+}
+
+@Composable
+private fun QualityControl(quality: Int?, qualities: List<Int>, onQuality: (Int?) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    val all = (qualities + listOfNotNull(quality)).distinct().sortedDescending()
+    Box {
+        OutlinedIconButton(onClick = { open = true }, modifier = Modifier.size(46.dp)) {
             Text(
-                "Качество",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                quality?.let { "${it}p" } ?: "Авто",
+                style = MaterialTheme.typography.labelSmall,
             )
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             DropdownMenuItem(
                 text = { Text("Авто") },
                 onClick = { onQuality(null); open = false },
             )
-            qualities.forEach { q ->
+            all.forEach { q ->
                 DropdownMenuItem(
                     text = { Text("${q}p") },
                     onClick = { onQuality(q); open = false },
@@ -1047,6 +1073,7 @@ private fun VideoRow(
     Row(
         Modifier
             .fillMaxWidth()
+            .clickable(onClick = onPlay)
             .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1082,9 +1109,6 @@ private fun VideoRow(
             IconButton(onClick = onRemove) {
                 Icon(painterResource(R.drawable.ic_close), "Убрать")
             }
-        }
-        IconButton(onClick = onPlay) {
-            Icon(painterResource(R.drawable.ic_play), "Смотреть")
         }
     }
 }

@@ -118,6 +118,7 @@ fun VolnaTheme(content: @Composable () -> Unit) {
         // Повторное нажатие той же темы не запускает ещё одну волну.
         if (themeId == lastWaveTheme) return@LaunchedEffect
         lastWaveTheme = themeId
+        if (waves.size >= 3) waves.removeAt(0)
         waves.add(
             ThemeWave(
                 startNanos = System.nanoTime(),
@@ -178,6 +179,7 @@ fun VolnaTheme(content: @Composable () -> Unit) {
                 drawRect(Color(basePalette.bg))
                 val now = if (frameNanos > 0L) frameNanos else System.nanoTime()
                 val maxR = hypot(size.width.toDouble(), size.height.toDouble()).toFloat() * 1.08f
+                val wavePath = Path()
                 for (wave in waves) {
                     val p = ((now - wave.startNanos).toFloat() / WAVE_NANOS)
                         .coerceIn(0f, 1f)
@@ -186,8 +188,9 @@ fun VolnaTheme(content: @Composable () -> Unit) {
                     val cy = wave.y * size.height
                     val r = (p * maxR).coerceAtLeast(1f)
                     // Неровный край — это и есть «волна», а не ровный круг.
-                    val path = Path()
-                    val steps = 128
+                    val path = wavePath
+                    path.reset()
+                    val steps = 64
                     val phase = p * 10f
                     for (i in 0..steps) {
                         val a = i.toFloat() / steps * 2f * PI.toFloat()

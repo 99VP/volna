@@ -1417,7 +1417,7 @@ fun SettingsScreen(vm: PlayerViewModel, onBack: () -> Unit) {
         return
     }
 
-    Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
+    Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize().edgeSwipeBack { onBack() }) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
                 Row(
                     Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 4.dp, bottom = 2.dp),
