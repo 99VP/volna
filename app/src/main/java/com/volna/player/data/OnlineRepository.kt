@@ -723,12 +723,14 @@ object OnlineRepository {
         withContext(Dispatchers.IO) {
             val service = NewPipe.getServiceByUrl(pageUrl)
             val info = StreamInfo.getInfo(service, pageUrl)
-            val all = info.videoStreams
+            val all = (info.videoStreams + info.videoOnlyStreams)
                 .filter { it.isUrl && !it.url.isNullOrBlank() }
+            val dashUrl = info.dashMpdUrl?.takeIf { it.isNotBlank() }
             val progressive = all.filter {
                 !it.isVideoOnly && it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP
             }
-            val videoOnly = all.filter { it.isVideoOnly }
+            val videoOnly = info.videoOnlyStreams
+                .filter { it.isUrl && !it.url.isNullOrBlank() }
             val qualities = (progressive + videoOnly)
                 .map { it.height }
                 .filter { it > 0 }
@@ -740,6 +742,21 @@ object OnlineRepository {
                 qualities.last(),
                 qualities.first(),
             )
+            if (dashUrl != null) {
+                return@withContext ResolvedVideo(
+                    url = dashUrl,
+                    mimeType = "application/dash+xml",
+                    title = info.name.orEmpty(),
+                    artist = info.uploaderName.orEmpty(),
+                    durationMs = info.duration.coerceAtLeast(0L) * 1000L,
+                    thumbUrl = info.thumbnails?.lastOrNull()?.url,
+                    hasVideo = true,
+                    qualities = qualities,
+                    height = target,
+                    isShort = info.duration in 1..90,
+                    dashUrl = dashUrl,
+                )
+            }
             val progressivePick = progressive
                 .filter { it.height in 1..target }
                 .maxByOrNull { it.height }
@@ -804,6 +821,7 @@ object OnlineRepository {
         val durationMs: Long,
         val thumbUrl: String?,
         val hasVideo: Boolean,
+        val dashUrl: String? = null,
         val audioUrl: String? = null,
         val videoOnly: Boolean = false,
         val qualities: List<Int> = emptyList(),

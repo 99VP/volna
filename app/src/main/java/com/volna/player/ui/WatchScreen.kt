@@ -5,7 +5,6 @@ import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -78,6 +77,8 @@ import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.dash.DashMediaSource
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.MergingMediaSource
@@ -99,7 +100,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
@@ -177,8 +177,10 @@ fun WatchScreen(
     val dataSourceFactory = remember(context) {
         DefaultDataSource.Factory(context, OkHttpDataSource.Factory(httpClient))
     }
+    val trackSelector = remember(context) { DefaultTrackSelector(context) }
     val player = remember(context) {
         ExoPlayer.Builder(context)
+            .setTrackSelector(trackSelector)
             .setMediaSourceFactory(
                 DefaultMediaSourceFactory(context).setDataSourceFactory(dataSourceFactory),
             )
@@ -191,6 +193,16 @@ fun WatchScreen(
             )
             .build()
     }
+    fun applyQuality(q: Int?) {
+        val params = trackSelector.buildUponParameters()
+        if (q == null) {
+            params.setMaxVideoSize(1080, 1080)
+        } else {
+            params.setMaxVideoSize(q, q)
+        }
+        trackSelector.setParameters(params)
+    }
+
     val currentVideoQueue by rememberUpdatedState(videoQueue)
     val currentUrlState by rememberUpdatedState(currentUrl)
 
@@ -576,19 +588,26 @@ fun WatchScreen(
                 .setArtist(r.artist)
                 .apply { r.thumbUrl?.let { setArtworkUri(Uri.parse(it)) } }
                 .build()
+            applyQuality(quality)
             val videoItem = MediaItem.Builder()
                 .setUri(r.url)
                 .setMediaMetadata(metadata)
                 .build()
-            val videoSource = ProgressiveMediaSource.Factory(dataSourceFactory)
-                .createMediaSource(videoItem)
-            val source: MediaSource = when {
-                r.audioUrl != null -> MergingMediaSource(
-                    videoSource,
-                    ProgressiveMediaSource.Factory(dataSourceFactory)
-                        .createMediaSource(MediaItem.fromUri(r.audioUrl)),
-                )
-                else -> videoSource
+            val source: MediaSource = if (r.dashUrl != null) {
+                DashMediaSource.Factory(dataSourceFactory)
+                    .createMediaSource(MediaItem.Builder().setUri(r.dashUrl).setMediaMetadata(metadata).build())
+            } else {
+                val videoSource = ProgressiveMediaSource.Factory(dataSourceFactory)
+                    .createMediaSource(videoItem)
+                if (r.audioUrl != null) {
+                    MergingMediaSource(
+                        videoSource,
+                        ProgressiveMediaSource.Factory(dataSourceFactory)
+                            .createMediaSource(MediaItem.fromUri(r.audioUrl)),
+                    )
+                } else {
+                    videoSource
+                }
             }
             player.setMediaSource(source, startAt.coerceAtLeast(0L))
             player.prepare()
@@ -610,16 +629,8 @@ fun WatchScreen(
     }
 
     val gestureModifier = Modifier
-        .pointerInput(player, speed) {
+        .pointerInput(player, fullscreen, controlsVisible) {
             detectTapGestures(
-                onPress = {
-                    val released = withTimeoutOrNull(450) { tryAwaitRelease() }
-                    if (released == null) {
-                        player.setPlaybackSpeed(2f)
-                        tryAwaitRelease()
-                        player.setPlaybackSpeed(speed)
-                    }
-                },
                 onTap = {
                     if (fullscreen) {
                         controlsVisible = !controlsVisible
@@ -641,19 +652,6 @@ fun WatchScreen(
                             seekFeedbackLeft = false
                             seekFeedbackKey++
                         }
-                    }
-                },
-            )
-        }
-        .pointerInput(player) {
-            var dx = 0f
-            detectHorizontalDragGestures(
-                onDragStart = { dx = 0f },
-                onHorizontalDrag = { _, drag -> dx += drag },
-                onDragEnd = {
-                    if (abs(dx) > 40f) {
-                        val delta = if (dx > 0) -5000L else 5000L
-                        player.seekTo((player.currentPosition + delta).coerceAtLeast(0L))
                     }
                 },
             )
