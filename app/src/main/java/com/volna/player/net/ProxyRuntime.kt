@@ -187,12 +187,8 @@ object ProxyRuntime {
             _detail.value = "Проверяю обход (${strategy + 1}/3)…"
             if (!proxy.start(strategy)) continue
             useRelay = false
-            if (healthCheckSocks(proxy.port)) {
-                ok = true
-                break
-            }
-            // Прямой SOCKS не прошёл (например, из-за DNS) — пробуем тот же
-            // обход через локальный HTTP-редирект с DoH-резолвом.
+            // Сначала локальный HTTP-редирект: он резолвит домен через DoH и
+            // не зависит от системного DNS. Если не вышло — прямой SOCKS.
             val relay = LocalHttpProxy(proxy.port)
             httpProxy?.stop()
             httpProxy = relay
@@ -204,6 +200,10 @@ object ProxyRuntime {
             }
             relay.stop()
             httpProxy = null
+            if (healthCheckSocks(proxy.port)) {
+                ok = true
+                break
+            }
             proxy.stop()
         }
         lastCheckAt = System.currentTimeMillis()
@@ -214,7 +214,7 @@ object ProxyRuntime {
         } else {
             stop()
             _state.value = BypassState.FAILED
-            _detail.value = "YouTube не ответил через обход"
+            _detail.value = "Обход не подтвердился — работаю напрямую"
         }
     }
 

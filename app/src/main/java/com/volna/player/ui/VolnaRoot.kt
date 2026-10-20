@@ -151,7 +151,7 @@ fun VolnaRoot(
     }
 
     LaunchedEffect(showSettings) {
-        if (showSettings) vm.checkForUpdates()
+        if (showSettings) vm.checkForUpdates(force = true)
     }
 
     LaunchedEffect(initialWatch) {

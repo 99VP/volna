@@ -56,7 +56,7 @@ inside the app. Removing it completely requires distribution through Google Play
 or Android developer verification.
 
 SHA-256 of `Volna-1.1.apk`:
-`e725b104395d03fcaeaee6dd5580f75a6c7dab2b3e4260c0833014215d19984a`
+`9bbcb7f1d16711db364ec5971bd1a9511d732617d9d81d065e8102abf7e5e488`
 
 ## Privacy
 
@@ -145,7 +145,7 @@ Android может показать предупреждение Play Protect «
 Play или проверка разработчика Android.
 
 SHA-256 файла `Volna-1.1.apk`:
-`e725b104395d03fcaeaee6dd5580f75a6c7dab2b3e4260c0833014215d19984a`
+`9bbcb7f1d16711db364ec5971bd1a9511d732617d9d81d065e8102abf7e5e488`
 
 ### Приватность
 

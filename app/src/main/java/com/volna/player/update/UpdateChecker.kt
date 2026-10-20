@@ -30,7 +30,7 @@ object UpdateChecker {
 
     private const val REPO = "99VP/volna"
     private const val API = "https://api.github.com/repos/$REPO/releases/latest"
-    private const val CHECK_INTERVAL_MS = 30 * 60 * 1000L
+    private const val CHECK_INTERVAL_MS = 10 * 60 * 1000L
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(12, TimeUnit.SECONDS)
