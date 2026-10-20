@@ -50,18 +50,22 @@
       var p = new URLSearchParams(location.search);
       var url = p.get('url') || '';
       var t = parseInt(p.get('t') || '0', 10) || 0;
-      var app = 'volna://watch?url=' + encodeURIComponent(url) + '&t=' + t;
+      var room = p.get('room') || '';
+      var server = p.get('server') || '';
+      var app = room
+        ? 'volna://watch?room=' + encodeURIComponent(room) + '&server=' + encodeURIComponent(server)
+        : 'volna://watch?url=' + encodeURIComponent(url) + '&t=' + t;
       var open = document.getElementById('open');
       var status = document.getElementById('status');
       var target = document.getElementById('target');
       var download = document.getElementById('download');
       open.href = app;
-      if (!url) {
+      if (!url && !room) {
         status.textContent = 'В ссылке нет адреса видео. Открой «Волну» и поделись просмотром ещё раз.';
         open.style.display = 'none';
         return;
       }
-      target.textContent = url;
+      target.textContent = room ? ('Комната ' + room) : url;
       var left = false;
       function go() {
         if (left) return;

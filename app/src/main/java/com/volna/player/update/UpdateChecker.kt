@@ -20,6 +20,7 @@ data class UpdateInfo(
     val releaseUrl: String,
     val apkUrl: String?,
     val notes: String = "",
+    val buildId: String = "",
 )
 
 /**
@@ -57,6 +58,7 @@ object UpdateChecker {
                 .putString("releaseUrl", result.releaseUrl)
                 .putString("apkUrl", result.apkUrl ?: "")
                 .putString("notes", result.notes)
+                .putString("buildId", result.buildId)
                 .apply()
             result
         }
@@ -66,8 +68,9 @@ object UpdateChecker {
         val releaseUrl = prefs.getString("releaseUrl", null) ?: return null
         val apk = prefs.getString("apkUrl", null).orEmpty().ifBlank { null }
         val notes = prefs.getString("notes", "").orEmpty()
-        val info = UpdateInfo(version, releaseUrl, apk, notes)
-        return if (isNewer(info.version)) info else null
+        val buildId = prefs.getString("buildId", "").orEmpty()
+        val info = UpdateInfo(version, releaseUrl, apk, notes, buildId)
+        return if (needsUpdate(info)) info else null
     }
 
     private fun fetch(): UpdateInfo? {
@@ -82,9 +85,10 @@ object UpdateChecker {
             if (body.isBlank()) return null
             val json = JSONObject(body)
             val tag = json.optString("tag_name").removePrefix("v").removePrefix("V")
-            if (tag.isBlank() || !isNewer(tag)) return null
+            if (tag.isBlank()) return null
             val html = json.optString("html_url")
-            val notes = json.optString("body").take(1200)
+            val notes = json.optString("body").take(1600)
+            val remoteBuild = Regex("(?m)^Build:\\s*(\\S+)").find(notes)?.groupValues?.get(1).orEmpty()
             val assets = json.optJSONArray("assets")
             var apk: String? = null
             if (assets != null) {
@@ -97,26 +101,39 @@ object UpdateChecker {
                     }
                 }
             }
-            return UpdateInfo(
+            val info = UpdateInfo(
                 version = tag,
                 releaseUrl = html,
                 apkUrl = apk,
                 notes = notes,
+                buildId = remoteBuild,
             )
+            return if (needsUpdate(info)) info else null
         }
     }
 
+    /** Нужно ли предлагать обновление: новая версия или другая сборка 1.1. */
+    private fun needsUpdate(info: UpdateInfo): Boolean {
+        val cmp = compare(info.version, BuildConfig.VERSION_NAME)
+        if (cmp < 0) return false
+        if (cmp > 0) return true
+        val remote = info.buildId.ifBlank { info.version }
+        return remote != BuildConfig.BUILD_ID
+    }
+
     /** Простое сравнение версий вида 1.1 / 1.2.3. */
-    fun isNewer(candidate: String): Boolean {
-        val a = numbers(candidate)
-        val b = numbers(BuildConfig.VERSION_NAME)
-        val n = maxOf(a.size, b.size)
+    fun isNewer(candidate: String): Boolean = compare(candidate, BuildConfig.VERSION_NAME) > 0
+
+    private fun compare(a: String, b: String): Int {
+        val x = numbers(a)
+        val y = numbers(b)
+        val n = maxOf(x.size, y.size)
         for (i in 0 until n) {
-            val x = a.getOrElse(i) { 0 }
-            val y = b.getOrElse(i) { 0 }
-            if (x != y) return x > y
+            val av = x.getOrElse(i) { 0 }
+            val bv = y.getOrElse(i) { 0 }
+            if (av != bv) return av.compareTo(bv)
         }
-        return false
+        return 0
     }
 
     private fun numbers(v: String): List<Int> =
@@ -129,7 +146,7 @@ object UpdateChecker {
     ): File = withContext(Dispatchers.IO) {
         val url = info.apkUrl ?: throw IllegalStateException("В релизе нет APK")
         val dir = File(context.cacheDir, "volna-update").apply { mkdirs() }
-        val target = File(dir, "volna-${info.version}.apk")
+        val target = File(dir, "volna-${info.version}-${info.buildId.ifBlank { "latest" }}.apk")
         val request = Request.Builder()
             .url(url)
             .header("User-Agent", "Volna-Android/${BuildConfig.VERSION_NAME}")

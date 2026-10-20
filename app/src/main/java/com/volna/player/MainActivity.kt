@@ -43,8 +43,16 @@ class MainActivity : ComponentActivity() {
     private fun parseWatchLink(intent: Intent?): WatchLink? {
         val data = intent?.data ?: return null
         if (data.scheme != "volna" || data.host != "watch") return null
-        val url = data.getQueryParameter("url") ?: return null
+        val url = data.getQueryParameter("url")
+        val room = data.getQueryParameter("room")
+        val server = data.getQueryParameter("server")
+        if (url.isNullOrBlank() && room.isNullOrBlank()) return null
         val seconds = data.getQueryParameter("t")?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
-        return WatchLink(url = url, positionMs = seconds * 1000L)
+        return WatchLink(
+            url = url,
+            positionMs = seconds * 1000L,
+            room = room,
+            server = server,
+        )
     }
 }

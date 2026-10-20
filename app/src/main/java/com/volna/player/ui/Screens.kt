@@ -68,13 +68,11 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -107,12 +105,10 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -910,6 +906,7 @@ fun PlayerScreen(vm: PlayerViewModel) {
                 MarqueeTitle(
                     text = now?.title ?: "Ничего не играет",
                     style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.fillMaxWidth(),
                 )
                 if (!now?.artist.isNullOrBlank()) {
                     Text(
@@ -1395,18 +1392,14 @@ fun SettingsScreen(vm: PlayerViewModel, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val theme by SettingsStore.theme.collectAsState()
     val artworkScale by SettingsStore.artworkScale.collectAsState()
-    val fontScale by SettingsStore.fontScale.collectAsState()
     val developer by SettingsStore.developer.collectAsState()
     val godMode by SettingsStore.godMode.collectAsState()
     val bypass by SettingsStore.bypass.collectAsState()
+    val watchServer by SettingsStore.watchServer.collectAsState()
     val bypassState by ProxyRuntime.state.collectAsState()
-    val bypassDetail by ProxyRuntime.detail.collectAsState()
     val updateInfo by vm.updateInfo.collectAsState()
     val updateProgress by vm.updateProgress.collectAsState()
     val updateError by vm.updateError.collectAsState()
-
-    val density = LocalDensity.current
-    val systemFont = context.resources.configuration.fontScale
 
     var showMines by remember { mutableStateOf(false) }
     var showSudoku by remember { mutableStateOf(false) }
@@ -1420,8 +1413,7 @@ fun SettingsScreen(vm: PlayerViewModel, onBack: () -> Unit) {
     }
 
     Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
-        CompositionLocalProvider(LocalDensity provides Density(density.density, systemFont)) {
-            Column(Modifier.fillMaxSize().statusBarsPadding()) {
+        Column(Modifier.fillMaxSize().statusBarsPadding()) {
                 Row(
                     Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 4.dp, bottom = 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -1466,10 +1458,10 @@ fun SettingsScreen(vm: PlayerViewModel, onBack: () -> Unit) {
                             Text("YouTube без VPN", style = MaterialTheme.typography.bodyLarge)
                             Text(
                                 when (bypassState) {
-                                    BypassState.READY -> "Локальный обход работает"
-                                    BypassState.STARTING -> "Запускаю…"
-                                    BypassState.VPN_ACTIVE -> "Пауза: включён VPN"
-                                    BypassState.FAILED -> "Не удалось запустить"
+                                    BypassState.READY -> "Работает"
+                                    BypassState.STARTING -> "Запуск…"
+                                    BypassState.VPN_ACTIVE -> "Пауза, включён VPN"
+                                    BypassState.FAILED -> "Не удалось"
                                     BypassState.DISABLED -> "Выключено"
                                 },
                                 style = MaterialTheme.typography.bodySmall,
@@ -1483,48 +1475,28 @@ fun SettingsScreen(vm: PlayerViewModel, onBack: () -> Unit) {
                         Switch(
                             checked = bypass,
                             onCheckedChange = { ProxyRuntime.setEnabled(context, it) },
+                            enabled = bypassState != BypassState.VPN_ACTIVE,
                         )
                     }
-                    if (bypassDetail.isNotBlank()) {
-                        Text(
-                            bypassDetail,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 4.dp),
-                        )
+                    if (bypassState != BypassState.VPN_ACTIVE) {
+                        TextButton(onClick = { ProxyRuntime.retry(context) }) { Text("Проверить") }
                     }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(onClick = { ProxyRuntime.retry(context) }) { Text("Проверить обход") }
-                    }
-                    Text(
-                        "ByeDPI работает только на телефоне: трафик не уходит на сторонний сервер. " +
-                            "При включённом VPN обход приостанавливается, чтобы не конфликтовать.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+
+                    SectionTitle("Совместный просмотр")
+                    OutlinedTextField(
+                        value = watchServer,
+                        onValueChange = { SettingsStore.setWatchServer(it) },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("https://сервер-комнат") },
+                        singleLine = true,
                     )
 
                     SectionTitle("Размер обложки")
-                    Slider(
+                    LineSlider(
                         value = artworkScale,
                         valueRange = 0.6f..1.4f,
                         onValueChange = { SettingsStore.setArtworkScale(it) },
                     )
-
-                    SectionTitle("Размер текста")
-                    var localFont by remember { mutableFloatStateOf(fontScale) }
-                    Slider(
-                        value = localFont,
-                        valueRange = 0.85f..1.35f,
-                        onValueChange = {
-                            localFont = it
-                            SettingsStore.setFontScale(it)
-                        },
-                    )
-                    CompositionLocalProvider(
-                        LocalDensity provides Density(density.density, systemFont * localFont),
-                    ) {
-                        Text("Пример текста - Волна", style = MaterialTheme.typography.bodyLarge)
-                    }
 
                     SectionTitle("Игры")
                     OutlinedButton(onClick = { showMines = true }) { Text("Сапёр") }
@@ -1595,7 +1567,6 @@ fun SettingsScreen(vm: PlayerViewModel, onBack: () -> Unit) {
                     Spacer(Modifier.height(16.dp))
                 }
             }
-        }
     }
 }
 

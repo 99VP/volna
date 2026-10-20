@@ -18,7 +18,7 @@ import kotlin.concurrent.thread
  * прокси сам резолвит домен через DoH и передаёт ByeDPI уже IP-адрес, а
  * ByeDPI по-прежнему применяет обход DPI к исходящему TCP-соединению.
  */
-class LocalHttpProxy(private val upstreamSocksPort: Int) {
+class LocalHttpProxy(private val upstreamSocksPort: Int = 0) {
 
     private var server: ServerSocket? = null
     private val sockets = ConcurrentHashMap.newKeySet<Socket>()
@@ -76,9 +76,15 @@ class LocalHttpProxy(private val upstreamSocksPort: Int) {
         val upstream = Socket()
         sockets.add(upstream)
         try {
-            upstream.connect(InetSocketAddress("127.0.0.1", upstreamSocksPort), 6000)
-            upstream.soTimeout = 15000
-            socksConnect(upstream, address, targetPort)
+            if (upstreamSocksPort > 0) {
+                upstream.connect(InetSocketAddress("127.0.0.1", upstreamSocksPort), 6000)
+                upstream.soTimeout = 15000
+                socksConnect(upstream, address, targetPort)
+            } else {
+                // Чистый Kotlin-обход: подключаемся к цели напрямую и режем
+                // первый TLS-пакет на две TCP-отправки.
+                upstream.connect(InetSocketAddress(address, targetPort), 8000)
+            }
             upstream.soTimeout = 0
             client.soTimeout = 0
             client.getOutputStream().write(
@@ -86,8 +92,9 @@ class LocalHttpProxy(private val upstreamSocksPort: Int) {
             )
             val clientOut = client.getOutputStream()
             val upstreamOut = upstream.getOutputStream()
+            val splitFirst = upstreamSocksPort <= 0
             val a = thread(name = "volna-proxy-up", isDaemon = true) {
-                copy(input, upstreamOut)
+                copyClientToUpstream(input, upstreamOut, splitFirst)
                 runCatching { upstream.close() }
             }
             val b = thread(name = "volna-proxy-down", isDaemon = true) {
@@ -99,6 +106,32 @@ class LocalHttpProxy(private val upstreamSocksPort: Int) {
         } finally {
             runCatching { upstream.close() }
             sockets.remove(upstream)
+        }
+    }
+
+    private fun copyClientToUpstream(
+        input: InputStream,
+        output: OutputStream,
+        splitFirst: Boolean,
+    ) {
+        val buf = ByteArray(16 * 1024)
+        var first = true
+        try {
+            while (true) {
+                val n = input.read(buf)
+                if (n < 0) break
+                if (first && splitFirst && n > 1) {
+                    output.write(buf, 0, 1)
+                    output.flush()
+                    Thread.sleep(18)
+                    output.write(buf, 1, n - 1)
+                } else {
+                    output.write(buf, 0, n)
+                }
+                output.flush()
+                first = false
+            }
+        } catch (_: Exception) {
         }
     }
 

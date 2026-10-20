@@ -160,37 +160,51 @@ object ProxyRuntime {
         if (isVpnActive(context)) {
             stop()
             _state.value = BypassState.VPN_ACTIVE
-            _detail.value = "Включён VPN — обход приостановлен"
+            _detail.value = "Пауза, включён VPN"
             return
         }
 
-        if (ready && proxy.isRunning && !force) {
+        val active = proxy.isRunning || httpProxy?.isRunning == true
+        if (ready && active && !force) {
             _state.value = BypassState.READY
-            _detail.value = "Локальный обход работает"
             return
         }
-        if (ready && proxy.isRunning && force &&
+        if (ready && active && force &&
             System.currentTimeMillis() - lastCheckAt < 60_000L
         ) {
             _state.value = BypassState.READY
-            _detail.value = "Локальный обход работает"
             return
         }
 
         _state.value = BypassState.STARTING
-        _detail.value = "Запускаю локальный обход…"
         ready = false
         stop()
 
+        // 1) Быстрый чистый Kotlin-обход: DoH + разрезание первого TLS-пакета.
+        _detail.value = "Запуск…"
+        val split = LocalHttpProxy(0)
+        httpProxy = split
+        useRelay = true
+        split.start()
+        if (healthCheckRelay(split.port)) {
+            lastCheckAt = System.currentTimeMillis()
+            ready = true
+            _state.value = BypassState.READY
+            return
+        }
+        split.stop()
+        httpProxy = null
+        useRelay = false
+
+        // 2) Запасной ByeDPI, только если Kotlin-обход не подтвердился.
         var ok = false
-        for (strategy in 0..2) {
-            _detail.value = "Проверяю обход (${strategy + 1}/3)…"
+        for (strategy in 0..1) {
             if (!proxy.start(strategy)) continue
-            useRelay = false
-            // Сначала локальный HTTP-редирект: он резолвит домен через DoH и
-            // не зависит от системного DNS. Если не вышло — прямой SOCKS.
+            if (healthCheckSocks(proxy.port)) {
+                ok = true
+                break
+            }
             val relay = LocalHttpProxy(proxy.port)
-            httpProxy?.stop()
             httpProxy = relay
             relay.start()
             if (healthCheckRelay(relay.port)) {
@@ -200,21 +214,15 @@ object ProxyRuntime {
             }
             relay.stop()
             httpProxy = null
-            if (healthCheckSocks(proxy.port)) {
-                ok = true
-                break
-            }
             proxy.stop()
         }
         lastCheckAt = System.currentTimeMillis()
         if (ok) {
             ready = true
             _state.value = BypassState.READY
-            _detail.value = "Локальный обход работает (стратегия ${proxy.strategyIndex + 1})"
         } else {
             stop()
             _state.value = BypassState.FAILED
-            _detail.value = "Обход не подтвердился — работаю напрямую"
         }
     }
 

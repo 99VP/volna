@@ -134,6 +134,14 @@ class LibraryStore(context: Context) {
         prefs.edit().remove(KEY_HIST).apply()
     }
 
+    // ---- Очередь видео для «Просмотра» --------------------------------
+
+    fun videoQueue(): List<Track> = parseTracks(prefs.getString(KEY_VIDEO_QUEUE, null))
+
+    fun saveVideoQueue(tracks: List<Track>) {
+        prefs.edit().putString(KEY_VIDEO_QUEUE, tracksToJson(tracks).toString()).apply()
+    }
+
     // ---- Вкус: дизлайки и статистика прослушивания ----------------------
 
     fun disliked(): Set<String> = prefs.getStringSet("disliked", emptySet()) ?: emptySet()
@@ -229,6 +237,7 @@ class LibraryStore(context: Context) {
         private const val KEY_FAV = "favorites"
         private const val KEY_PL = "playlists"
         private const val KEY_HIST = "history"
+        private const val KEY_VIDEO_QUEUE = "video_queue"
 
         fun sameTrack(a: Track, b: Track): Boolean =
             if (a.isLocal || b.isLocal) {

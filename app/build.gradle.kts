@@ -14,6 +14,23 @@ val keystoreProps = Properties().apply {
 }
 val hasReleaseKeystore = !keystoreProps.getProperty("storeFile").isNullOrBlank()
 
+// Идентификатор сборки: коммит + время коммита. Позволяет обновлять APK
+// в рамках одной версии 1.1 и понимать, что на GitHub лежит более новая сборка.
+val buildId: String = runCatching {
+    fun git(vararg args: String): String {
+        val process = ProcessBuilder("git", *args)
+            .directory(rootDir)
+            .redirectErrorStream(true)
+            .start()
+        val text = process.inputStream.bufferedReader().readText().trim()
+        process.waitFor()
+        return text
+    }
+    val hash = git("rev-parse", "--short", "HEAD")
+    val time = git("log", "-1", "--format=%ct")
+    if (hash.isBlank() || time.isBlank()) "dev-${System.currentTimeMillis()}" else "$hash-$time"
+}.getOrDefault("dev-${System.currentTimeMillis()}")
+
 android {
     namespace = "com.volna.player"
     compileSdk = 35
@@ -25,6 +42,7 @@ android {
         targetSdk = 34
         versionCode = 81
         versionName = "1.1"
+        buildConfigField("String", "BUILD_ID", "\"$buildId\"")
         vectorDrawables { useSupportLibrary = true }
 
         ndk {

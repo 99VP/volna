@@ -27,8 +27,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.volna.player.data.SettingsStore
 import kotlin.math.PI
@@ -90,7 +88,6 @@ private val WAVE_NANOS = WAVE_MS * 1_000_000L
 @Composable
 fun VolnaTheme(content: @Composable () -> Unit) {
     val themeId by SettingsStore.theme.collectAsState()
-    val fontScale by SettingsStore.fontScale.collectAsState()
     val revealVersion = ThemeReveal.version
     val targetP = VolnaPalettes.firstOrNull { it.id == themeId } ?: VolnaPalettes.first()
 
@@ -118,10 +115,8 @@ fun VolnaTheme(content: @Composable () -> Unit) {
             waves.clear()
             return@LaunchedEffect
         }
-        // Одинаковую тему повторно не «волнуем», но смену темы — всегда.
-        if (themeId == lastWaveTheme && themeId == basePalette.id && waves.isEmpty()) {
-            return@LaunchedEffect
-        }
+        // Повторное нажатие той же темы не запускает ещё одну волну.
+        if (themeId == lastWaveTheme) return@LaunchedEffect
         lastWaveTheme = themeId
         waves.add(
             ThemeWave(
@@ -178,11 +173,7 @@ fun VolnaTheme(content: @Composable () -> Unit) {
         )
     }
 
-    val density = LocalDensity.current
-    CompositionLocalProvider(
-        LocalDensity provides Density(density.density, density.fontScale * fontScale),
-    ) {
-        Box(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize()) {
             Canvas(Modifier.fillMaxSize()) {
                 drawRect(Color(basePalette.bg))
                 val now = if (frameNanos > 0L) frameNanos else System.nanoTime()
@@ -222,5 +213,4 @@ fun VolnaTheme(content: @Composable () -> Unit) {
                 content = content,
             )
         }
-    }
 }

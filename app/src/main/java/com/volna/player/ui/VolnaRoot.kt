@@ -58,6 +58,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -83,11 +84,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 private const val PLAYER_PAGE = 3
+private const val WATCH_PAGE = 4
 
 /** Ссылка «Смотреть вместе» из volna://watch. */
 data class WatchLink(
-    val url: String,
+    val url: String?,
     val positionMs: Long = 0L,
+    val room: String? = null,
+    val server: String? = null,
 )
 
 @Composable
@@ -99,9 +103,8 @@ fun VolnaRoot(
     val context = LocalContext.current
     var showSearch by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
-    var showWatch by remember { mutableStateOf(false) }
-    var watchUrl by remember { mutableStateOf<String?>(null) }
-    var watchPosition by remember { mutableLongStateOf(0L) }
+    var watchFullscreen by remember { mutableStateOf(false) }
+    var shareWatchRequest by remember { mutableIntStateOf(0) }
     val pirat by vm.pirat.collectAsState()
     val piratMessage by vm.piratMessage.collectAsState()
     val piratQuip by vm.piratQuip.collectAsState()
@@ -110,7 +113,7 @@ fun VolnaRoot(
     val updateProgress by vm.updateProgress.collectAsState()
     val updateDismissed by vm.updateDismissed.collectAsState()
 
-    val pagerState = rememberPagerState(initialPage = PLAYER_PAGE) { 4 }
+    val pagerState = rememberPagerState(initialPage = PLAYER_PAGE) { 5 }
     val scope = rememberCoroutineScope()
 
     // при возврате в приложение перечитываем избранное/историю (лайк мог быть из уведомления)
@@ -143,7 +146,10 @@ fun VolnaRoot(
 
     BackHandler(enabled = showSearch) { showSearch = false }
     BackHandler(enabled = showSettings) { showSettings = false }
-    BackHandler(enabled = showWatch) { showWatch = false }
+    BackHandler(enabled = !watchFullscreen && pagerState.currentPage == WATCH_PAGE) {
+        scope.launch { pagerState.animateScrollToPage(PLAYER_PAGE) }
+    }
+    BackHandler(enabled = watchFullscreen) { watchFullscreen = false }
 
     LaunchedEffect(Unit) {
         ProxyRuntime.refresh(context)
@@ -156,11 +162,14 @@ fun VolnaRoot(
 
     LaunchedEffect(initialWatch) {
         val link = initialWatch ?: return@LaunchedEffect
-        watchUrl = link.url
-        watchPosition = link.positionMs
-        showWatch = true
-        vm.pauseForWatch()
+        if (!link.url.isNullOrBlank()) vm.setWatch(link.url, link.positionMs)
+        vm.setWatchRoom(link.room, link.server)
+        pagerState.animateScrollToPage(WATCH_PAGE)
         onWatchConsumed()
+    }
+
+    LaunchedEffect(pagerState.currentPage) {
+        if (pagerState.currentPage != WATCH_PAGE) watchFullscreen = false
     }
 
     LaunchedEffect(pirat) {
@@ -198,92 +207,92 @@ fun VolnaRoot(
         Box(Modifier.fillMaxSize()) {
             if (pirat) {
                 PiratLockedScreen(vm = vm, onSearch = { showSearch = true })
-            } else if (showWatch) {
-                WatchScreen(
-                    vm = vm,
-                    initialUrl = watchUrl,
-                    initialPositionMs = watchPosition,
-                    onBack = { showWatch = false },
-                )
             } else if (showSettings) {
                 SettingsScreen(vm = vm, onBack = { showSettings = false })
             } else {
                 Scaffold(
                     containerColor = MaterialTheme.colorScheme.background,
                     bottomBar = {
-                        Column {
-                            MiniPlayer(vm) {
-                                scope.launch { pagerState.animateScrollToPage(PLAYER_PAGE) }
-                            }
-                            NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                                val page = pagerState.currentPage
-                                NavigationBarItem(
-                                    selected = page == 0,
-                                    onClick = { scope.launch { pagerState.animateScrollToPage(0) } },
-                                    icon = { Icon(painterResource(R.drawable.ic_library), null) },
-                                    label = { Text("Телефон") },
-                                )
-                                NavigationBarItem(
-                                    selected = page == 1,
-                                    onClick = { scope.launch { pagerState.animateScrollToPage(1) } },
-                                    icon = { Icon(painterResource(R.drawable.ic_trending), null) },
-                                    label = { Text("Тренды") },
-                                )
-                                NavigationBarItem(
-                                    selected = page == 2,
-                                    onClick = { scope.launch { pagerState.animateScrollToPage(2) } },
-                                    icon = { Icon(painterResource(R.drawable.ic_wave), null) },
-                                    label = { Text("Волна") },
-                                )
-                                NavigationBarItem(
-                                    selected = page == PLAYER_PAGE,
-                                    onClick = { scope.launch { pagerState.animateScrollToPage(PLAYER_PAGE) } },
-                                    icon = { Icon(painterResource(R.drawable.ic_play), null) },
-                                    label = { Text("Плеер") },
-                                )
+                        if (!watchFullscreen) {
+                            Column {
+                                MiniPlayer(vm) {
+                                    scope.launch { pagerState.animateScrollToPage(PLAYER_PAGE) }
+                                }
+                                NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+                                    val page = pagerState.currentPage
+                                    NavigationBarItem(
+                                        selected = page == 0,
+                                        onClick = { scope.launch { pagerState.animateScrollToPage(0) } },
+                                        icon = { Icon(painterResource(R.drawable.ic_library), null) },
+                                        label = { Text("Телефон") },
+                                    )
+                                    NavigationBarItem(
+                                        selected = page == 1,
+                                        onClick = { scope.launch { pagerState.animateScrollToPage(1) } },
+                                        icon = { Icon(painterResource(R.drawable.ic_trending), null) },
+                                        label = { Text("Тренды") },
+                                    )
+                                    NavigationBarItem(
+                                        selected = page == 2,
+                                        onClick = { scope.launch { pagerState.animateScrollToPage(2) } },
+                                        icon = { Icon(painterResource(R.drawable.ic_wave), null) },
+                                        label = { Text("Волна") },
+                                    )
+                                    NavigationBarItem(
+                                        selected = page == PLAYER_PAGE || page == WATCH_PAGE,
+                                        onClick = { scope.launch { pagerState.animateScrollToPage(PLAYER_PAGE) } },
+                                        icon = { Icon(painterResource(R.drawable.ic_play), null) },
+                                        label = { Text("Плеер") },
+                                    )
+                                }
                             }
                         }
                     },
                     floatingActionButton = {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier
-                                .size(56.dp)
-                                .pointerInput(Unit) {
-                                    detectTapGestures(
-                                        onPress = {
-                                            // Держишь 3 сек — срабатывает, не отпуская.
-                                            val released = withTimeoutOrNull(3000) { tryAwaitRelease() }
-                                            if (released == null) {
-                                                vm.toggleDeveloper()
-                                            } else if (released) {
-                                                showSettings = true
-                                            }
-                                        },
-                                    )
-                                },
-                        ) {
-                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Icon(painterResource(R.drawable.ic_settings), contentDescription = "Настройки")
+                        if (!watchFullscreen) {
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .pointerInput(Unit) {
+                                        detectTapGestures(
+                                            onPress = {
+                                                // Держишь 3 сек — срабатывает, не отпуская.
+                                                val released = withTimeoutOrNull(3000) { tryAwaitRelease() }
+                                                if (released == null) {
+                                                    vm.toggleDeveloper()
+                                                } else if (released) {
+                                                    showSettings = true
+                                                }
+                                            },
+                                        )
+                                    },
+                            ) {
+                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Icon(painterResource(R.drawable.ic_settings), contentDescription = "Настройки")
+                                }
                             }
                         }
                     },
                 ) { padding ->
                     Column(Modifier.padding(padding).fillMaxSize()) {
-                        Header(
-                            showBack = pagerState.currentPage != PLAYER_PAGE,
-                            onBack = { scope.launch { pagerState.animateScrollToPage(PLAYER_PAGE) } },
-                            onSearch = { showSearch = true },
-                            onWatch = {
-                                showSearch = false
-                                vm.pauseForWatch()
-                                showWatch = true
-                            },
-                        )
+                        if (!watchFullscreen) {
+                            Header(
+                                showBack = pagerState.currentPage != PLAYER_PAGE,
+                                onBack = { scope.launch { pagerState.animateScrollToPage(PLAYER_PAGE) } },
+                                onSearch = { showSearch = true },
+                                onWatch = {
+                                    showSearch = false
+                                    scope.launch { pagerState.animateScrollToPage(WATCH_PAGE) }
+                                },
+                                isWatch = pagerState.currentPage == WATCH_PAGE,
+                                onWatchTogether = { shareWatchRequest++ },
+                            )
+                        }
                         val info = updateInfo
-                        if (info != null && info.version != updateDismissed) {
+                        if (info != null && info.buildId.ifBlank { info.version } != updateDismissed) {
                             UpdateBanner(
                                 info = info,
                                 progress = updateProgress,
@@ -300,7 +309,16 @@ fun VolnaRoot(
                                 0 -> PhoneScreen(vm)
                                 1 -> TrendingScreen(vm)
                                 2 -> WaveScreen(vm)
-                                else -> PlayerScreen(vm)
+                                3 -> PlayerScreen(vm)
+                                else -> WatchScreen(
+                                    vm = vm,
+                                    fullscreen = watchFullscreen,
+                                    onBack = {
+                                        scope.launch { pagerState.animateScrollToPage(PLAYER_PAGE) }
+                                    },
+                                    onFullscreen = { watchFullscreen = it },
+                                    shareRequest = shareWatchRequest,
+                                )
                             }
                         }
                     }
@@ -390,6 +408,8 @@ private fun Header(
     onBack: () -> Unit,
     onSearch: () -> Unit,
     onWatch: (() -> Unit)? = null,
+    isWatch: Boolean = false,
+    onWatchTogether: (() -> Unit)? = null,
 ) {
     Row(
         Modifier
@@ -405,9 +425,17 @@ private fun Header(
             Spacer(Modifier.width(10.dp))
         }
         Text("Волна", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-        onWatch?.let {
-            IconButton(onClick = it) {
-                Icon(painterResource(R.drawable.ic_watch), contentDescription = "Просмотр")
+        if (isWatch) {
+            onWatchTogether?.let {
+                IconButton(onClick = it) {
+                    Icon(painterResource(R.drawable.ic_people), contentDescription = "Смотреть вместе")
+                }
+            }
+        } else {
+            onWatch?.let {
+                IconButton(onClick = it) {
+                    Icon(painterResource(R.drawable.ic_watch), contentDescription = "Просмотр")
+                }
             }
         }
         IconButton(onClick = onSearch) {
@@ -464,6 +492,7 @@ private fun MiniPlayer(vm: PlayerViewModel, onExpand: () -> Unit) {
                     text = current.title,
                     style = MaterialTheme.typography.bodyMedium,
                     textAlign = TextAlign.Start,
+                    modifier = Modifier.fillMaxWidth(),
                 )
                 if (current.artist.isNotBlank()) {
                     Text(

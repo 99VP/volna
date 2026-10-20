@@ -2,7 +2,6 @@ package com.volna.player.ui
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.basicMarquee
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -34,7 +33,6 @@ fun MarqueeTitle(
         overflow = TextOverflow.Clip,
         textAlign = textAlign,
         modifier = modifier
-            .fillMaxWidth()
             .basicMarquee(
                 iterations = Int.MAX_VALUE,
                 initialDelayMillis = 1600,

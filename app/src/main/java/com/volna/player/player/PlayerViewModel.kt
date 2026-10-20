@@ -220,6 +220,35 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
     private val _updateDismissed = MutableStateFlow<String?>(null)
     val updateDismissed: StateFlow<String?> = _updateDismissed.asStateFlow()
 
+    // ---- Просмотр --------------------------------------------------------
+
+    private val _watchUrl = MutableStateFlow<String?>(null)
+    val watchUrl: StateFlow<String?> = _watchUrl.asStateFlow()
+
+    private val _watchPosition = MutableStateFlow(0L)
+    val watchPosition: StateFlow<Long> = _watchPosition.asStateFlow()
+
+    private val _watchPlaying = MutableStateFlow(false)
+    val watchPlaying: StateFlow<Boolean> = _watchPlaying.asStateFlow()
+
+    private val _watchTitle = MutableStateFlow("")
+    val watchTitle: StateFlow<String> = _watchTitle.asStateFlow()
+
+    private val _watchArtist = MutableStateFlow("")
+    val watchArtist: StateFlow<String> = _watchArtist.asStateFlow()
+
+    private val _watchHasVideo = MutableStateFlow(true)
+    val watchHasVideo: StateFlow<Boolean> = _watchHasVideo.asStateFlow()
+
+    private val _videoQueue = MutableStateFlow<List<Track>>(emptyList())
+    val videoQueue: StateFlow<List<Track>> = _videoQueue.asStateFlow()
+
+    private val _watchRoom = MutableStateFlow<String?>(null)
+    val watchRoom: StateFlow<String?> = _watchRoom.asStateFlow()
+
+    private val _watchRoomServer = MutableStateFlow<String?>(null)
+    val watchRoomServer: StateFlow<String?> = _watchRoomServer.asStateFlow()
+
     private var prevMediaId: String? = null
     private var prevPos = 0L
     private var prevDur = 0L
@@ -304,6 +333,7 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
         _disliked.value = store.disliked()
         _updateDismissed.value = appContext.getSharedPreferences("volna_update", android.content.Context.MODE_PRIVATE)
             .getString("dismissed", null)
+        _videoQueue.value = store.videoQueue()
 
         val token = SessionToken(
             appContext,
@@ -487,6 +517,56 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
         runCatching { _controller.value?.pause() }
     }
 
+    fun setWatch(url: String, positionMs: Long = 0L, playing: Boolean = true) {
+        _watchUrl.value = url
+        _watchPosition.value = positionMs.coerceAtLeast(0L)
+        _watchPlaying.value = playing
+        _watchTitle.value = ""
+        _watchArtist.value = ""
+        _watchHasVideo.value = true
+    }
+
+    fun saveWatchState(
+        url: String?,
+        positionMs: Long,
+        playing: Boolean,
+        title: String,
+        artist: String,
+        hasVideo: Boolean,
+    ) {
+        if (!url.isNullOrBlank()) _watchUrl.value = url
+        _watchPosition.value = positionMs.coerceAtLeast(0L)
+        _watchPlaying.value = playing
+        _watchTitle.value = title
+        _watchArtist.value = artist
+        _watchHasVideo.value = hasVideo
+    }
+
+    fun setWatchRoom(room: String?, server: String?) {
+        _watchRoom.value = room?.takeIf { it.isNotBlank() }
+        _watchRoomServer.value = server?.takeIf { it.isNotBlank() }
+    }
+
+    fun addVideoToQueue(track: Track) {
+        val list = _videoQueue.value.toMutableList()
+        if (list.none { LibraryStore.sameTrack(it, track) }) {
+            list.add(track)
+            _videoQueue.value = list
+            runCatching { store.saveVideoQueue(list) }
+        }
+    }
+
+    fun removeVideoFromQueue(track: Track) {
+        val list = _videoQueue.value.filterNot { LibraryStore.sameTrack(it, track) }
+        _videoQueue.value = list
+        runCatching { store.saveVideoQueue(list) }
+    }
+
+    fun clearVideoQueue() {
+        _videoQueue.value = emptyList()
+        runCatching { store.saveVideoQueue(emptyList()) }
+    }
+
     fun next() {
         _controller.value?.takeIf { it.hasNextMediaItem() }?.seekToNextMediaItem()
     }
@@ -640,10 +720,11 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun dismissUpdate() {
-        val version = _updateInfo.value?.version ?: return
-        _updateDismissed.value = version
+        val info = _updateInfo.value ?: return
+        val id = info.buildId.ifBlank { info.version }
+        _updateDismissed.value = id
         appContext.getSharedPreferences("volna_update", android.content.Context.MODE_PRIVATE)
-            .edit().putString("dismissed", version).apply()
+            .edit().putString("dismissed", id).apply()
     }
 
     fun downloadAndInstallUpdate() {

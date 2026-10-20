@@ -59,6 +59,29 @@ object OnlineRepository {
         ).take(limit)
     }
 
+    /** Поиск видео для отдельного плеера «Просмотр». */
+    suspend fun searchVideos(query: String, limit: Int = 24): List<Track> =
+        withContext(Dispatchers.IO) {
+            if (query.isBlank()) return@withContext emptyList()
+            val service = ServiceList.YouTube
+            val extractor = runCatching {
+                service.getSearchExtractor(
+                    query,
+                    listOf(YoutubeSearchQueryHandlerFactory.MUSIC_VIDEOS),
+                    "",
+                )
+            }.getOrElse { service.getSearchExtractor(query) }
+            extractor.fetchPage()
+            val info = SearchInfo.getInfo(extractor)
+            info.relatedItems
+                .asSequence()
+                .filterIsInstance<StreamInfoItem>()
+                .filter { it.streamType == StreamType.VIDEO_STREAM || it.streamType == StreamType.AUDIO_STREAM }
+                .take(limit)
+                .map { it.toTrack(service) }
+                .toList()
+        }
+
     /** Приоритет: официальное аудио (topic) и формат "Исполнитель - Название". */
     private fun songPriority(t: Track): Int {
         var p = 0
@@ -318,8 +341,7 @@ object OnlineRepository {
         return VIDEO_WORDS.any { t.contains(it) }
     }
 
-    /** Годится ли как песня: и название, и канал должны быть «музыкальными». */
-    private fun looksLikeSong(
+    /** Годится ли как песня: и название, и канал должны быть «музыкальными». */    private fun looksLikeSong(
         t: Track,
         maxSec: Long = MAX_SONG_SEC,
         requireSongSignal: Boolean = false,
@@ -697,51 +719,81 @@ object OnlineRepository {
      * progressive-видео (в нём уже есть звук), иначе отдаём аудио и рисуем
      * обложку — так «Просмотр» работает даже для треков без видео.
      */
-    suspend fun resolveVideo(pageUrl: String): ResolvedVideo = withContext(Dispatchers.IO) {
-        val service = NewPipe.getServiceByUrl(pageUrl)
-        val info = StreamInfo.getInfo(service, pageUrl)
-        val video = info.videoStreams
-            .asSequence()
-            .filter { it.isUrl && !it.url.isNullOrBlank() }
-            .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }
-            .filter { !it.isVideoOnly }
-            .sortedByDescending { it.height }
-            .firstOrNull { it.height in 1..720 }
-            ?: info.videoStreams
-                .asSequence()
+    suspend fun resolveVideo(pageUrl: String, maxHeight: Int? = null): ResolvedVideo =
+        withContext(Dispatchers.IO) {
+            val service = NewPipe.getServiceByUrl(pageUrl)
+            val info = StreamInfo.getInfo(service, pageUrl)
+            val all = info.videoStreams
                 .filter { it.isUrl && !it.url.isNullOrBlank() }
                 .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }
+            val progressive = all.filter { !it.isVideoOnly }
+            val videoOnly = all.filter { it.isVideoOnly }
+            val qualities = (progressive + videoOnly)
+                .map { it.height }
+                .filter { it > 0 }
+                .distinct()
+                .sortedDescending()
+                .filter { it <= 1080 }
+                .ifEmpty { listOf(360) }
+            val target = (maxHeight ?: qualities.first()).coerceIn(
+                qualities.last(),
+                qualities.first(),
+            )
+            val progressivePick = progressive
+                .filter { it.height in 1..target }
+                .maxByOrNull { it.height }
+            val videoOnlyPick = videoOnly
+                .filter { it.height in 1..target }
                 .maxByOrNull { it.height }
 
-        if (video != null) {
-            val url = (video.url ?: video.content).orEmpty()
-            if (url.isNotBlank()) {
-                return@withContext ResolvedVideo(
-                    url = url,
-                    mimeType = video.format?.mimeType,
-                    title = info.name.orEmpty(),
-                    artist = info.uploaderName.orEmpty(),
-                    durationMs = info.duration.coerceAtLeast(0L) * 1000L,
-                    thumbUrl = info.thumbnails?.lastOrNull()?.url,
-                    hasVideo = true,
-                )
+            val video = when {
+                progressivePick == null -> videoOnlyPick
+                videoOnlyPick == null -> progressivePick
+                videoOnlyPick.height > progressivePick.height -> videoOnlyPick
+                else -> progressivePick
             }
-        }
+            if (video != null) {
+                val url = (video.url ?: video.content).orEmpty()
+                if (url.isNotBlank()) {
+                    val isVideoOnly = video.isVideoOnly
+                    val audioUrl = if (isVideoOnly) {
+                        pickAudio(info.audioStreams)?.let { (it.url ?: it.content).orEmpty() }
+                            ?.takeIf { it.isNotBlank() }
+                    } else null
+                    return@withContext ResolvedVideo(
+                        url = url,
+                        mimeType = video.format?.mimeType,
+                        title = info.name.orEmpty(),
+                        artist = info.uploaderName.orEmpty(),
+                        durationMs = info.duration.coerceAtLeast(0L) * 1000L,
+                        thumbUrl = info.thumbnails?.lastOrNull()?.url,
+                        hasVideo = true,
+                        audioUrl = audioUrl,
+                        videoOnly = isVideoOnly,
+                        qualities = qualities,
+                        height = video.height,
+                        isShort = info.duration in 1..90,
+                    )
+                }
+            }
 
-        val audio = pickAudio(info.audioStreams)
-            ?: throw IllegalStateException("Не удалось получить видеопоток")
-        val url = (audio.url ?: audio.content).orEmpty()
-        if (url.isBlank()) throw IllegalStateException("Пустой адрес потока")
-        ResolvedVideo(
-            url = url,
-            mimeType = audio.format?.mimeType,
-            title = info.name.orEmpty(),
-            artist = info.uploaderName.orEmpty(),
-            durationMs = info.duration.coerceAtLeast(0L) * 1000L,
-            thumbUrl = info.thumbnails?.lastOrNull()?.url,
-            hasVideo = false,
-        )
-    }
+            val audio = pickAudio(info.audioStreams)
+                ?: throw IllegalStateException("Не удалось получить видеопоток")
+            val url = (audio.url ?: audio.content).orEmpty()
+            if (url.isBlank()) throw IllegalStateException("Пустой адрес потока")
+            ResolvedVideo(
+                url = url,
+                mimeType = audio.format?.mimeType,
+                title = info.name.orEmpty(),
+                artist = info.uploaderName.orEmpty(),
+                durationMs = info.duration.coerceAtLeast(0L) * 1000L,
+                thumbUrl = info.thumbnails?.lastOrNull()?.url,
+                hasVideo = false,
+                qualities = emptyList(),
+                height = 0,
+                isShort = info.duration in 1..90,
+            )
+        }
 
     data class ResolvedVideo(
         val url: String,
@@ -751,6 +803,11 @@ object OnlineRepository {
         val durationMs: Long,
         val thumbUrl: String?,
         val hasVideo: Boolean,
+        val audioUrl: String? = null,
+        val videoOnly: Boolean = false,
+        val qualities: List<Int> = emptyList(),
+        val height: Int = 0,
+        val isShort: Boolean = false,
     )
 
     /** Запасной источник: ищем тот же трек на SoundCloud и берём его поток. */

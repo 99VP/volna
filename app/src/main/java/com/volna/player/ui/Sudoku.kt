@@ -517,7 +517,7 @@ fun SudokuScreen(onBack: () -> Unit) {
         } else {
             BoxWithConstraints(Modifier.fillMaxWidth()) {
                 val gridSize = maxWidth - 8.dp
-                val cell = gridSize / 9
+                val cell = (gridSize - 8.dp) / 9
                 val lineThin = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                 val lineStrong = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f)
                 Box(
@@ -525,7 +525,8 @@ fun SudokuScreen(onBack: () -> Unit) {
                         .align(Alignment.TopCenter)
                         .size(gridSize)
                         .clip(RoundedCornerShape(10.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)),
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
+                        .padding(4.dp),
                 ) {
                     Column {
                         for (r in 0 until 9) {
