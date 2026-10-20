@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Ночная (тёмная) системная тема: светлее фон, чтобы иконка заметно
+         отличалась от дневной и подходила к светлой теме. -->
+    <color name="ic_launcher_background">#E9EEF6</color>
+</resources>

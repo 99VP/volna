@@ -17,14 +17,26 @@ val hasReleaseKeystore = !keystoreProps.getProperty("storeFile").isNullOrBlank()
 android {
     namespace = "com.volna.player"
     compileSdk = 35
+    ndkVersion = "27.2.12479018"
 
     defaultConfig {
         applicationId = "com.volna.player"
         minSdk = 29
         targetSdk = 34
-        versionCode = 80
-        versionName = "1.0"
+        versionCode = 81
+        versionName = "1.1"
         vectorDrawables { useSupportLibrary = true }
+
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 
     signingConfigs {
@@ -103,6 +115,7 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-hls:$media3")
     implementation("androidx.media3:media3-datasource-okhttp:$media3")
     implementation("androidx.media3:media3-session:$media3")
+    implementation("androidx.media3:media3-ui:$media3")
 
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("androidx.media:media:1.7.0")
@@ -110,6 +123,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 
     implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.5")
+
+    testImplementation("junit:junit:4.13.2")
 
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.2")
 }

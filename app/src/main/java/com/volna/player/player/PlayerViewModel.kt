@@ -24,6 +24,8 @@ import com.volna.player.data.TrackSource
 import com.volna.player.playback.PlaybackService
 import com.volna.player.playback.TrackMediaItem
 import com.volna.player.playback.VolnaResolver
+import com.volna.player.update.UpdateChecker
+import com.volna.player.update.UpdateInfo
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -201,6 +203,23 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
     private val _playerError = MutableStateFlow<String?>(null)
     val playerError: StateFlow<String?> = _playerError.asStateFlow()
 
+    // ---- Обновления ------------------------------------------------------
+
+    private val _updateInfo = MutableStateFlow<UpdateInfo?>(null)
+    val updateInfo: StateFlow<UpdateInfo?> = _updateInfo.asStateFlow()
+
+    private val _updateChecking = MutableStateFlow(false)
+    val updateChecking: StateFlow<Boolean> = _updateChecking.asStateFlow()
+
+    private val _updateProgress = MutableStateFlow<Float?>(null)
+    val updateProgress: StateFlow<Float?> = _updateProgress.asStateFlow()
+
+    private val _updateError = MutableStateFlow<String?>(null)
+    val updateError: StateFlow<String?> = _updateError.asStateFlow()
+
+    private val _updateDismissed = MutableStateFlow<String?>(null)
+    val updateDismissed: StateFlow<String?> = _updateDismissed.asStateFlow()
+
     private var prevMediaId: String? = null
     private var prevPos = 0L
     private var prevDur = 0L
@@ -283,6 +302,8 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
         _playlists.value = store.playlists()
         _history.value = store.history()
         _disliked.value = store.disliked()
+        _updateDismissed.value = appContext.getSharedPreferences("volna_update", android.content.Context.MODE_PRIVATE)
+            .getString("dismissed", null)
 
         val token = SessionToken(
             appContext,
@@ -429,6 +450,18 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun playSingle(track: Track) = playTracks(listOf(track), 0)
 
+    /**
+     * Выбор песни из поиска: она начинает играть, а очередь сразу
+     * перестраивается на похожие (без ручного нажатия «Похожие»).
+     */
+    fun playFromSearch(tracks: List<Track>, index: Int) {
+        if (tracks.isEmpty()) return
+        val idx = index.coerceIn(0, tracks.lastIndex)
+        val anchor = tracks[idx]
+        playTracks(tracks, idx)
+        rebuildSimilarQueue(anchor)
+    }
+
     fun playQueueIndex(index: Int) {
         val c = _controller.value ?: return
         c.seekTo(index, 0L)
@@ -447,6 +480,11 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
             if (c.playbackState == Player.STATE_IDLE) c.prepare()
             c.play()
         }
+    }
+
+    /** «Просмотр» — отдельный плеер: основная музыка ставится на паузу. */
+    fun pauseForWatch() {
+        runCatching { _controller.value?.pause() }
     }
 
     fun next() {
@@ -585,6 +623,57 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
         _trendTracks.value = emptyMap()
         _wave.value = emptyList()
         runCatching { store.clearTrends() }
+    }
+
+    // ---- Обновления ------------------------------------------------------
+
+    fun checkForUpdates(force: Boolean = false) {
+        if (_updateChecking.value) return
+        viewModelScope.launch {
+            _updateChecking.value = true
+            _updateError.value = null
+            runCatching { UpdateChecker.check(appContext, force) }
+                .onSuccess { _updateInfo.value = it }
+                .onFailure { _updateError.value = it.message ?: "Не удалось проверить обновления" }
+            _updateChecking.value = false
+        }
+    }
+
+    fun dismissUpdate() {
+        val version = _updateInfo.value?.version ?: return
+        _updateDismissed.value = version
+        appContext.getSharedPreferences("volna_update", android.content.Context.MODE_PRIVATE)
+            .edit().putString("dismissed", version).apply()
+    }
+
+    fun downloadAndInstallUpdate() {
+        val info = _updateInfo.value ?: return
+        if (info.apkUrl == null) {
+            UpdateChecker.openRelease(appContext, info)
+            return
+        }
+        viewModelScope.launch {
+            _updateProgress.value = 0f
+            _updateError.value = null
+            val result = runCatching {
+                val file = UpdateChecker.downloadApk(appContext, info) { p ->
+                    _updateProgress.value = p
+                }
+                UpdateChecker.install(appContext, file)
+            }
+            _updateProgress.value = null
+            result.onFailure {
+                _updateError.value = it.message ?: "Не удалось скачать обновление"
+            }
+        }
+    }
+
+    fun openUpdateRelease() {
+        _updateInfo.value?.let { UpdateChecker.openRelease(appContext, it) }
+    }
+
+    fun clearUpdateError() {
+        _updateError.value = null
     }
 
     /** Включить режим разработчика (долгое нажатие на кнопку настроек). */
@@ -896,17 +985,19 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
      * Перестраивает очередь: текущий трек - первым, дальше похожие,
      * без повторов и без уже прослушанных. Текущий трек продолжает играть.
      */
-    private fun rebuildSimilarQueue() {
+    private fun rebuildSimilarQueue(anchor: Track? = null) {
         if (SettingsStore.pirat.value) return
-        if (loadingSimilar) return
         val c = _controller.value ?: return
-        val track = currentTrack() ?: return
+        val track = anchor ?: currentTrack() ?: return
         styleAnchor = track
 
+        val generation = ++similarGeneration
+        similarJob?.cancel()
         loadingSimilar = true
-        viewModelScope.launch {
+        similarJob = viewModelScope.launch {
             try {
                 val related = OnlineRepository.related(track)
+                if (generation != similarGeneration) return@launch
                 val recent = recentlyHeard()
                 val cc = _controller.value ?: return@launch
                 val position = cc.currentPosition.coerceAtLeast(0L)
@@ -932,7 +1023,10 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
                 cc.play()
             } catch (_: Exception) {
             } finally {
-                loadingSimilar = false
+                if (generation == similarGeneration) {
+                    loadingSimilar = false
+                    similarJob = null
+                }
             }
         }
     }
@@ -940,6 +1034,8 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
     // ---- Похожие треки («радио») ----------------------------------------
 
     private var loadingSimilar = false
+    private var similarJob: kotlinx.coroutines.Job? = null
+    private var similarGeneration = 0
 
     /** Песня-«якорь» сессии: под неё держим автопродление, чтобы не уезжать в другой жанр. */
     private var styleAnchor: Track? = null

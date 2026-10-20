@@ -1,224 +1,166 @@
-# Волна
+# Volna
 
-Музыкальный плеер для Android. Ищет песни в интернете (YouTube и SoundCloud),
-подбирает подборку по стилю и играет музыку в фоне. Умеет также играть файлы,
-скачанные на телефон.
+A personal music player for Android. Volna searches for songs on YouTube and
+SoundCloud, builds a playlist around your taste, plays music in the background,
+and can also play audio files stored on the phone.
 
-Это личный некоммерческий проект. Он не связан с YouTube, Google, SoundCloud,
-Shazam, Apple или Deezer. Скачивание и воспроизведение чужого контента может
-нарушать условия сервисов и авторские права, поэтому используй на свой риск и в
-личных целях.
+Volna is not affiliated with YouTube, Google, SoundCloud, Shazam, Apple, or
+Deezer. Downloading and streaming third-party content may violate their terms
+and copyright law. Use it for personal purposes at your own risk.
+
+## What it does
+
+- **Search** for songs on YouTube and SoundCloud. The search is limited to
+  music results, so podcasts, playlists, interviews, and ordinary videos are
+  filtered out.
+- **My Wave** builds a selection from your favorites, listening history, likes,
+  skips, language, mood, and sound character. It tries to keep one style while
+  avoiding the same song and the same artist too often.
+- **Trends** shows Russian and international charts collected from several
+  public sources.
+- **Phone** plays local audio files from the device.
+- **Player** shows the current track, a queue, favorite/like controls, repeat,
+  shuffle, downloads, and a share button. Playback continues in the background
+  with a notification and lock-screen controls.
+- **Watch** is a separate video player. It pauses the main music player, plays a
+  YouTube link or a direct video URL, and can share a “watch together” link.
+  The link opens the app when it is installed; otherwise the page sends the
+  person to GitHub Releases.
+- **Themes** change with a wave that starts from the tapped theme. If you tap
+  another theme while the first wave is still moving, both waves continue and
+  the interface changes smoothly.
+- Long song titles scroll like a news ticker: pause, move right-to-left, pause,
+  repeat.
+- **YouTube without a VPN** uses a local DPI-bypass proxy (ByeDPI). It runs only
+  on the phone, does not send traffic to a third-party server, and does not need
+  root. If another VPN is active, the local bypass pauses to avoid a conflict.
+- The app checks GitHub Releases for updates. A dismissible banner appears when
+  a newer version exists; the same update action stays available in Settings.
+  The current version is shown in the bottom-right corner of Settings.
+
+## Install
+
+Download the latest APK from
+[GitHub Releases](https://github.com/99VP/volna/releases/latest) and open it on
+an Android 10 or newer device. Allow installation from unknown sources when
+Android asks.
+
+The app is Android-only. There is no iOS build.
+
+Android may show a Play Protect message such as “app not scanned” for software
+installed outside Google Play. This is an OS-level warning for sideloaded apps,
+not a virus report. The release APK is signed with the project’s release key; no
+signing passwords or API keys are stored in the repository. A sideloaded app
+always requires a confirmation tap, and this warning cannot be removed from
+inside the app. Removing it completely requires distribution through Google Play
+or Android developer verification.
+
+## Privacy
+
+- No accounts, analytics, ads, or tracking.
+- Network access is used only for search, playback, downloads, and update
+  checks.
+- Favorites, history, settings, playlists, and game saves stay on the device.
+- The media service is not exported to other apps.
+- Permissions: internet, network state, foreground media playback,
+  notifications, reading audio, and installing app updates. No contacts,
+  location, or similar access.
+
+## Build
+
+Requirements: JDK 17, Android SDK with compileSdk 35 and build-tools 35.0.0,
+CMake 3.22.1, and Android NDK 27.2.12479018 (needed for the local DPI bypass).
+
+```bash
+./gradlew :app:assembleDebug
+./gradlew :app:assembleRelease
+```
+
+The APK is written to `app/build/outputs/apk/`.
+
+A release build uses `keystore.properties` from the project root when it exists.
+The file is ignored by git; without it, the release is signed with the debug
+key. Signing passwords are never stored in the repository.
+
+## License
+
+GNU General Public License v3.0. See [LICENSE](LICENSE).
+
+Volna uses [NewPipeExtractor](https://github.com/TeamNewPipe/NewPipeExtractor)
+and [ByeDPI](https://github.com/hufrea/byedpi). Their licenses and attribution
+are included with the project.
+
+---
+
+<details>
+<summary><b>Русский</b></summary>
 
 ## Что делает приложение
 
-Экран разделён на четыре вкладки:
+«Волна» — личный музыкальный плеер для Android. Он ищет песни на YouTube и
+SoundCloud, собирает подборку под вкус, играет музыку в фоне и умеет
+воспроизводить файлы с телефона.
 
-- `Телефон`: музыка, которая лежит на устройстве.
-- `Тренды`: подборки из чартов.
-- `Волна`: онлайн подборка под вкус.
-- `Плеер`: текущий трек и очередь.
+- **Поиск** по YouTube и SoundCloud. Выдача ограничена музыкой: подкасты,
+  плейлисты, интервью и обычные видео отсеиваются.
+- **Моя волна** собирается из избранного, истории, лайков, скипов, языка,
+  настроения и характера звука. Старается держать один стиль и не повторять
+  одну песню и одного артиста слишком часто.
+- **Тренды** — русские и зарубежные чарты из нескольких открытых источников.
+- **Телефон** — музыка, которая лежит на устройстве.
+- **Плеер** — текущий трек, очередь, избранное, повтор, перемешивание,
+  скачивание и «поделиться». Музыка играет в фоне, есть уведомление и экран
+  блокировки.
+- **Просмотр** — отдельный видеоплеер. Он ставит музыку на паузу, играет ссылку
+  с YouTube или прямой видеофайл и умеет делиться ссылкой «смотреть вместе».
+  Если приложение установлено, ссылка открывает его; если нет — страницу
+  загрузки на GitHub.
+- **Темы** меняются волной из точки нажатия. Если нажать другую тему, пока
+  первая волна ещё идёт, обе продолжаются, а интерфейс меняется плавно.
+- Длинные названия песен двигаются как бегущая строка: пауза, движение справа
+  налево, снова пауза.
+- **YouTube без VPN** — локальный обход DPI (ByeDPI). Он работает только на
+  телефоне, не отправляет трафик на чужой сервер и не требует root. Если
+  включён другой VPN, обход приостанавливается, чтобы не конфликтовать.
+- Приложение проверяет обновления на GitHub. Если есть новая версия, появляется
+  закрываемая плашка; обновление также остаётся в настройках. Номер версии
+  показан справа снизу в настройках.
 
-Плюс поиск и экран настроек. Музыка играет в фоне, есть уведомление с кнопками
-управления и экран блокировки. Треки можно скачивать в память телефона.
+### Установка
 
-## Как приложение ищет песни
+Скачай APK из [GitHub Releases](https://github.com/99VP/volna/releases/latest)
+и открой на Android 10 или новее. Разреши установку из неизвестных источников,
+когда система попросит.
 
-Поиск и получение аудиопотока делает библиотека NewPipeExtractor. Официальный
-YouTube API не используется, ключи не нужны.
+Приложение только для Android. Версии для iOS нет.
 
-В некоторых сетях провайдер подменяет DNS для YouTube и его серверов. Поэтому в
-приложении есть свой резолвер `util/DoH.kt`. Для доменов YouTube, SoundCloud и
-Bandcamp адрес запрашивается через DNS over HTTPS (сервер 1.1.1.1), для
-остальных доменов используется обычный системный DNS. Ответы кэшируются на
-10 минут. Этот же резолвер подключён к OkHttp и ExoPlayer в
-`playback/VolnaResolver.kt`, чтобы и воспроизведение шло по правильным адресам.
+Android может показать предупреждение Play Protect «приложение не проверено»
+для программ, установленных вне Google Play. Это системное предупреждение для
+любого APK со стороны, а не отчёт о вирусе. Release-APK подписан ключом
+проекта; паролей подписи и API-ключей в репозитории нет. Полностью убрать это
+предупреждение изнутри приложения нельзя: для этого нужна публикация в Google
+Play или проверка разработчика Android.
 
-Поиск описан в `data/OnlineRepository.kt` и работает так:
+### Приватность
 
-1. Делается запрос в поиск сервиса.
-2. Результаты фильтруются, остаётся только то, что похоже на песню.
-3. Если песен нашлось меньше пяти, делается уточняющий запрос с добавлением
-   слова "трек".
-4. Результаты сортируются по признакам песни: официальный канал с пометкой topic
-   и формат "Исполнитель - Название" идут выше.
-5. Убираются дубли, ограничивается число песен одного исполнителя, одинаковые
-   исполнители разводятся по очереди.
+Нет аккаунтов, аналитики, рекламы и слежки. Сеть нужна только для поиска,
+воспроизведения, скачивания и проверки обновлений. Избранное, история,
+настройки, плейлисты и сохранения игр остаются на устройстве.
 
-## Как работает "Моя волна"
+### Сборка
 
-Подбор идёт по признакам стиля, а не по совпадению слов в названии и не по
-заранее заготовленному списку песен. Задача в том, чтобы в подборке был один
-стиль, но песни были разными.
+Нужны JDK 17, Android SDK (compileSdk 35, build-tools 35.0.0), CMake 3.22.1 и
+Android NDK 27.2.12479018.
 
-### 1. Профиль вкуса
-
-Из избранного, истории и оценок собирается профиль: любимые исполнители,
-настроение и жанр, характер звука (slowed, remix, lofi, acoustic, live, 8d, bass,
-instrumental), язык, годы песен, а также настройки разнообразия и языкового
-фильтра.
-
-### 2. Сбор кандидатов
-
-Для нескольких любимых треков и исполнителей параллельно запрашиваются похожие
-треки. Затем список чистится: убирается мусор и то, что отмечено как нелюбимое.
-
-### 3. Оценка трека
-
-Каждому треку считается балл по признакам. Основные веса:
-
-| Признак | Вес |
-|---|---|
-| Исполнитель совпал с любимым | +2.4 |
-| Официальный канал topic | +0.5 |
-| Язык совпал с предпочтением | +1.2 |
-| Язык не совпал | -0.8 |
-| Совпало настроение или жанр (до трёх) | +1.5 за каждое |
-| Совпало контекстное настроение (до двух) | +0.7 за каждое |
-| Совпал характер звука (до двух) | +0.9 за каждое |
-| Год близко к любимому, плюс минус 3 года | +0.8 |
-| Длительность от 100 до 420 секунд | +0.4 |
-| Длительность больше 480 секунд | -1.0 |
-| Трек уже слушали | -0.8 |
-| Нет ни одного общего признака со стилем | -3.0 |
-| Случайная добавка | от 0 до +0.35 |
-
-Последний пункт про минус 3.0 нужен, чтобы трек без общих признаков с профилем не
-попадал в подборку.
-
-### 4. Сборка очереди
-
-Свежие треки ставятся впереди, знакомые подмешиваются, примерно шестьдесят на
-сорок. Песни из чартов добавляются только если проходят по признакам стиля.
-Действуют ограничения: не больше двух песен одного исполнителя по умолчанию, и
-один исполнитель или одна песня не повторяются чаще, чем раз в четыре трека.
-Перезаливы, ремиксы и каверы считаются одной песней и не дублируются.
-
-### 5. Без интернета
-
-Если сети нет, та же оценка применяется к файлам на телефоне, поэтому вкладка
-продолжает работать на локальной музыке.
-
-### Как определяется, что это одна и та же песня
-
-Функция `MusicFilter.signature` приводит название к общему виду: убирает
-пометки вроде `(Official Video)`, `[HD]`, `feat.`, `remix`, `slowed`, `8d`,
-`кавер`, `минус`, служебные слова и слова из имени исполнителя, оставляя первые
-значимые слова. Поэтому "Песня (Slowed)" и "Песня (Original Mix)" считаются
-одной песней.
-
-## Что считается песней
-
-Правила лежат в `data/MusicFilter.kt`.
-
-- Отбрасываются миксы, сборники, плейлисты, записи длиной "1 час", "best of",
-  концерты, интервью, обзоры, реакции, подкасты, стендапы, ток шоу, новости,
-  геймплей, нарезки, приколы, shorts и tiktok.
-- Ограничение по длительности: по умолчанию от 45 до 600 секунд, для трендов до
-  300 секунд.
-- Детский контент отбрасывается.
-- Для YouTube нужен явный музыкальный признак: официальный канал topic или
-  формат "Исполнитель - Название". Это защищает от попадания видео и речей.
-- Каналы internet jesus и the8bitdrummer не берутся ни в поиск, ни в очередь.
-
-Настроение и характер звука определяются по наборам слов признаков. Они не
-привязаны к конкретным песням и описывают стиль в общем виде.
-
-## Как собираются тренды
-
-Вкладка "Тренды" берёт данные из нескольких источников без ключей, код в
-`data/OnlineRepository.kt`:
-
-1. Живые чарты сервисов: "в тренде" у YouTube и "New & hot" у SoundCloud.
-2. Shazam: список top 200 по региону.
-3. Apple Music RSS: список most played по стране.
-4. Deezer: открытый чарт.
-
-Из чартов берутся пары "исполнитель и название", после чего каждая пара ищется в
-YouTube или SoundCloud. Готовых списков песен в приложении нет. Вкладки русской и
-зарубежной музыки различаются регионом чартов и фильтром по языку.
-
-## Архитектура и файлы
-
-```
-app/src/main/java/com/volna/player/
-  MainActivity.kt                  точка входа
-  VolnaApp.kt                      инициализация NewPipe, DoH, Coil
-  data/
-    Track.kt                       модель трека
-    OnlineRepository.kt            поиск, тренды, Волна, получение аудио
-    MusicFilter.kt                 фильтр песни, признаки стиля, подпись песни
-    LocalLibrary.kt                сканирование локальной музыки
-    LibraryStore.kt                хранение фонотеки, избранного, истории
-    SettingsStore.kt               настройки
-    TrackDownloader.kt             скачивание трека
-    VolnaDownloader.kt             downloader для NewPipe
-    GameStore.kt, GameSave.kt      сохранение игр
-  playback/
-    PlaybackService.kt             медиасервис, уведомление, кнопки
-    VolnaResolver.kt               DoH резолвер для OkHttp и ExoPlayer
-    VolnaNotificationProvider.kt   оформление уведомления
-    TrackMediaItem.kt              MediaItem из трека
-    PiratGuardPlayer.kt            пасхалка
-  player/PlayerViewModel.kt        состояние плеера
-  ui/
-    VolnaRoot.kt                   вкладки, поиск, настройки
-    Screens.kt                     экраны Телефон, Тренды, Волна, Плеер
-    Minesweeper.kt, Sudoku.kt      игры
-    Confetti.kt, Sfx.kt            анимация и звуки
-    theme/Theme.kt                 темы и волновой переход
-  util/DoH.kt                      DNS over HTTPS
-```
-
-Технологии: Kotlin, Jetpack Compose, Material 3, Media3 и ExoPlayer, OkHttp,
-Coil, корутины, NewPipeExtractor. Минимальная версия Android 10 (API 29),
-compileSdk 35, targetSdk 34.
-
-## Приватность
-
-- Нет аналитики и рекламы, нет аккаунтов.
-- Сеть используется только для поиска, воспроизведения и скачивания музыки.
-- Соединение только по HTTPS.
-- Медиасервис помечен exported=false, сторонние приложения не могут им управлять.
-- Разрешения: интернет, состояние сети, foreground сервис, уведомления, чтение
-  аудио. Доступа к контактам, геолокации и подобному нет.
-- Избранное, история и настройки хранятся на устройстве.
-
-## Сборка
-
-Нужны JDK 17 и Android SDK (compileSdk 35, build tools 35.0.0).
-
-```
-./gradlew :app:assembleRelease
+```bash
 ./gradlew :app:assembleDebug
+./gradlew :app:assembleRelease
 ```
 
-Готовый APK появится в `app/build/outputs/apk/`.
+APK появится в `app/build/outputs/apk/`.
 
-В `settings.gradle.kts` подключены зеркала Maven (Huawei и Tencent) на случай,
-если прямой доступ к `dl.google.com` и `repo1.maven.org` недоступен. Их можно
-убрать и оставить только `google()` и `mavenCentral()`.
+### Лицензия
 
-## Подпись релиза
+GNU GPL v3.0. Подробности в [LICENSE](LICENSE).
 
-Паролей подписи в репозитории нет. Чтобы собрать подписанный релиз, создай в
-корне файл `keystore.properties` (он в `.gitignore`):
-
-```
-storeFile=app/volna.keystore
-storePassword=пароль
-keyAlias=volna
-keyPassword=пароль
-```
-
-Если файла нет, релиз соберётся с отладочной подписью. Она годится для установки
-на своё устройство, но не для публикации. Для публикации сгенерируй свой ключ:
-
-```
-keytool -genkeypair -v -keystore app/volna.keystore -alias volna -keyalg RSA -keysize 2048 -validity 10000
-```
-
-## Лицензия
-
-Проект под GNU GPL v3, текст в файле LICENSE. Лицензия выбрана потому, что
-приложение использует NewPipeExtractor, который распространяется под GPLv3. Если
-берёшь код, сохрани ту же лицензию и укажи источник.
+</details>

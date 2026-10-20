@@ -29,6 +29,8 @@ class VolnaApp : Application() {
         SettingsStore.init(this)
         GameStore.init(this)
         GameSave.init(this)
+        // Локальный обход DPI для YouTube/SoundCloud (по умолчанию включён).
+        com.volna.player.net.ProxyRuntime.init(this)
         // Инициализация движка извлечения аудио до первого использования.
         runCatching { NewPipe.init(VolnaDownloader(), Localization("ru", "RU")) }
     }

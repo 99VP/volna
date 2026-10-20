@@ -44,18 +44,21 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -74,22 +77,38 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.volna.player.R
+import com.volna.player.net.ProxyRuntime
 import com.volna.player.player.PlayerViewModel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 private const val PLAYER_PAGE = 3
 
+/** Ссылка «Смотреть вместе» из volna://watch. */
+data class WatchLink(
+    val url: String,
+    val positionMs: Long = 0L,
+)
+
 @Composable
-fun VolnaRoot() {
+fun VolnaRoot(
+    initialWatch: WatchLink? = null,
+    onWatchConsumed: () -> Unit = {},
+) {
     val vm: PlayerViewModel = viewModel()
     val context = LocalContext.current
     var showSearch by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    var showWatch by remember { mutableStateOf(false) }
+    var watchUrl by remember { mutableStateOf<String?>(null) }
+    var watchPosition by remember { mutableLongStateOf(0L) }
     val pirat by vm.pirat.collectAsState()
     val piratMessage by vm.piratMessage.collectAsState()
     val piratQuip by vm.piratQuip.collectAsState()
     val toastMsg by vm.toast.collectAsState()
+    val updateInfo by vm.updateInfo.collectAsState()
+    val updateProgress by vm.updateProgress.collectAsState()
+    val updateDismissed by vm.updateDismissed.collectAsState()
 
     val pagerState = rememberPagerState(initialPage = PLAYER_PAGE) { 4 }
     val scope = rememberCoroutineScope()
@@ -98,7 +117,12 @@ fun VolnaRoot() {
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) vm.reloadLibrary()
+            if (event == Lifecycle.Event.ON_RESUME) {
+                vm.reloadLibrary()
+                // Проверяем VPN и заново поднимаем локальный обход, если нужно.
+                ProxyRuntime.refresh(context)
+                vm.checkForUpdates()
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
@@ -119,6 +143,25 @@ fun VolnaRoot() {
 
     BackHandler(enabled = showSearch) { showSearch = false }
     BackHandler(enabled = showSettings) { showSettings = false }
+    BackHandler(enabled = showWatch) { showWatch = false }
+
+    LaunchedEffect(Unit) {
+        ProxyRuntime.refresh(context)
+        vm.checkForUpdates()
+    }
+
+    LaunchedEffect(showSettings) {
+        if (showSettings) vm.checkForUpdates()
+    }
+
+    LaunchedEffect(initialWatch) {
+        val link = initialWatch ?: return@LaunchedEffect
+        watchUrl = link.url
+        watchPosition = link.positionMs
+        showWatch = true
+        vm.pauseForWatch()
+        onWatchConsumed()
+    }
 
     LaunchedEffect(pirat) {
         if (pirat) {
@@ -155,6 +198,13 @@ fun VolnaRoot() {
         Box(Modifier.fillMaxSize()) {
             if (pirat) {
                 PiratLockedScreen(vm = vm, onSearch = { showSearch = true })
+            } else if (showWatch) {
+                WatchScreen(
+                    vm = vm,
+                    initialUrl = watchUrl,
+                    initialPositionMs = watchPosition,
+                    onBack = { showWatch = false },
+                )
             } else if (showSettings) {
                 SettingsScreen(vm = vm, onBack = { showSettings = false })
             } else {
@@ -226,7 +276,22 @@ fun VolnaRoot() {
                             showBack = pagerState.currentPage != PLAYER_PAGE,
                             onBack = { scope.launch { pagerState.animateScrollToPage(PLAYER_PAGE) } },
                             onSearch = { showSearch = true },
+                            onWatch = {
+                                showSearch = false
+                                vm.pauseForWatch()
+                                showWatch = true
+                            },
                         )
+                        val info = updateInfo
+                        if (info != null && info.version != updateDismissed) {
+                            UpdateBanner(
+                                info = info,
+                                progress = updateProgress,
+                                onDismiss = { vm.dismissUpdate() },
+                                onUpdate = { vm.downloadAndInstallUpdate() },
+                                onOpenSettings = { showSettings = true },
+                            )
+                        }
                         HorizontalPager(
                             state = pagerState,
                             modifier = Modifier.weight(1f),
@@ -276,8 +341,56 @@ fun VolnaRoot() {
     }
 }
 
+/** Плашка о новой версии: закрывается, но остаётся в настройках. */
 @Composable
-private fun Header(showBack: Boolean, onBack: () -> Unit, onSearch: () -> Unit) {
+private fun UpdateBanner(
+    info: com.volna.player.update.UpdateInfo,
+    progress: Float?,
+    onDismiss: () -> Unit,
+    onUpdate: () -> Unit,
+    onOpenSettings: () -> Unit,
+) {
+    Surface(color = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "Доступна Волна ${info.version}",
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Text(
+                        "Можно обновить сейчас или позже в настройках.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
+                    )
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(painterResource(R.drawable.ic_close), contentDescription = "Закрыть")
+                }
+            }
+            if (progress != null) {
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                )
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End) {
+                TextButton(onClick = onOpenSettings) { Text("Настройки") }
+                TextButton(onClick = onUpdate, enabled = progress == null) {
+                    Text(if (progress == null) "Обновить" else "Загрузка…")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun Header(
+    showBack: Boolean,
+    onBack: () -> Unit,
+    onSearch: () -> Unit,
+    onWatch: (() -> Unit)? = null,
+) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -292,6 +405,11 @@ private fun Header(showBack: Boolean, onBack: () -> Unit, onSearch: () -> Unit) 
             Spacer(Modifier.width(10.dp))
         }
         Text("Волна", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+        onWatch?.let {
+            IconButton(onClick = it) {
+                Icon(painterResource(R.drawable.ic_watch), contentDescription = "Просмотр")
+            }
+        }
         IconButton(onClick = onSearch) {
             Icon(painterResource(R.drawable.ic_search), contentDescription = "Поиск")
         }
@@ -342,11 +460,10 @@ private fun MiniPlayer(vm: PlayerViewModel, onExpand: () -> Unit) {
             )
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(
-                    current.title,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                MarqueeTitle(
+                    text = current.title,
                     style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Start,
                 )
                 if (current.artist.isNotBlank()) {
                     Text(

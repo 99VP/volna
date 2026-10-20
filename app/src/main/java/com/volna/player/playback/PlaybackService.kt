@@ -71,6 +71,9 @@ class PlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         diag("onCreate")
+        // Если процесс был перезапущен системой для фонового воспроизведения,
+        // локальный обход нужно поднять заново.
+        com.volna.player.net.ProxyRuntime.init(applicationContext)
         // Кнопка «лайк» в уведомлении — через провайдер уведомления, без кастомной сессии.
         getSharedPreferences("volna_diag", MODE_PRIVATE)
             .edit().putLong("serviceCreated", System.currentTimeMillis()).commit()
@@ -79,6 +82,7 @@ class PlaybackService : MediaSessionService() {
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
             .dns(DoH.dns)
+            .proxySelector(com.volna.player.net.ProxyRuntime.mediaProxySelector)
             .build()
 
         val httpFactory = OkHttpDataSource.Factory(httpClient)

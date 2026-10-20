@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Волна — смотреть вместе</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; display: grid; place-items: center;
+      background: radial-gradient(120% 90% at 50% 0%, #1b2230 0%, #111113 55%, #0d0d0f 100%);
+      color: #e7e7e9; font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      padding: 24px;
+    }
+    .card {
+      width: min(420px, 100%); background: #161618; border: 1px solid #2a2a2f;
+      border-radius: 24px; padding: 26px 22px; text-align: center;
+      box-shadow: 0 24px 80px rgba(0,0,0,.45);
+    }
+    .wave { display: flex; gap: 4px; align-items: flex-end; justify-content: center; height: 34px; margin-bottom: 10px; }
+    .wave span { width: 5px; border-radius: 4px; background: #c15a5f; animation: w 1s ease-in-out infinite; }
+    .wave span:nth-child(1){ height: 12px; animation-delay: -.8s } .wave span:nth-child(2){ height: 22px; animation-delay: -.6s }
+    .wave span:nth-child(3){ height: 32px; animation-delay: -.4s } .wave span:nth-child(4){ height: 20px; animation-delay: -.2s }
+    .wave span:nth-child(5){ height: 14px; animation-delay: 0s }
+    @keyframes w { 0%,100% { transform: scaleY(.55) } 50% { transform: scaleY(1) } }
+    h1 { margin: 0 0 8px; font-size: 24px; letter-spacing: -.02em; }
+    p { margin: 0 0 18px; color: #8c8c95; font-size: 14px; }
+    .btn {
+      display: block; width: 100%; padding: 14px 16px; border-radius: 14px; text-decoration: none;
+      font-weight: 600; color: #fff; background: #c15a5f; margin-top: 10px;
+    }
+    .btn.secondary { background: #1e1e22; color: #e7e7e9; border: 1px solid #2a2a2f; }
+    .hint { margin-top: 16px; font-size: 12px; color: #6f6f78; }
+    .url { word-break: break-all; font-size: 12px; color: #8c8c95; margin-top: 14px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="wave"><span></span><span></span><span></span><span></span><span></span></div>
+    <h1>Смотреть вместе</h1>
+    <p id="status">Пробую открыть «Волну»…</p>
+    <a class="btn" id="open" href="#">Открыть в Волне</a>
+    <a class="btn secondary" id="download" href="https://github.com/99VP/volna/releases/latest">Скачать Волну</a>
+    <div class="url" id="target"></div>
+    <div class="hint">Если приложение не установлено, через пару секунд откроется страница загрузки на GitHub.</div>
+  </div>
+  <script>
+    (function () {
+      var p = new URLSearchParams(location.search);
+      var url = p.get('url') || '';
+      var t = parseInt(p.get('t') || '0', 10) || 0;
+      var app = 'volna://watch?url=' + encodeURIComponent(url) + '&t=' + t;
+      var open = document.getElementById('open');
+      var status = document.getElementById('status');
+      var target = document.getElementById('target');
+      var download = document.getElementById('download');
+      open.href = app;
+      if (!url) {
+        status.textContent = 'В ссылке нет адреса видео. Открой «Волну» и поделись просмотром ещё раз.';
+        open.style.display = 'none';
+        return;
+      }
+      target.textContent = url;
+      var left = false;
+      function go() {
+        if (left) return;
+        left = true;
+        location.href = 'https://github.com/99VP/volna/releases/latest';
+      }
+      document.addEventListener('visibilitychange', function () {
+        if (document.hidden) left = true;
+      });
+      setTimeout(function () { location.href = app; }, 120);
+      setTimeout(go, 1800);
+    })();
+  </script>
+</body>
+</html>

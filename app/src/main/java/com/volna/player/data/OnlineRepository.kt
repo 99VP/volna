@@ -11,10 +11,13 @@ import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.StreamingService
 import org.schabi.newpipe.extractor.kiosk.KioskInfo
 import org.schabi.newpipe.extractor.search.SearchInfo
+import org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubeSearchQueryHandlerFactory
 import org.schabi.newpipe.extractor.stream.AudioStream
 import org.schabi.newpipe.extractor.stream.DeliveryMethod
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
+import org.schabi.newpipe.extractor.stream.StreamType
+import org.schabi.newpipe.extractor.stream.VideoStream
 import java.util.Calendar
 import kotlin.math.abs
 import kotlin.random.Random
@@ -65,12 +68,31 @@ object OnlineRepository {
     }
 
     private fun searchRaw(service: StreamingService, query: String, limit: Int): List<Track> {
-        val extractor = service.getSearchExtractor(query)
+        // Для YouTube ищем именно в разделе «Музыка» (music_songs): так в
+        // выдачу не попадают подкасты, плейлисты и обычные видео.
+        val extractor = if (service.serviceId == ServiceList.YouTube.serviceId) {
+            runCatching {
+                service.getSearchExtractor(
+                    query,
+                    listOf(YoutubeSearchQueryHandlerFactory.MUSIC_SONGS),
+                    "",
+                )
+            }.getOrElse { service.getSearchExtractor(query) }
+        } else {
+            service.getSearchExtractor(query)
+        }
         extractor.fetchPage()
         val info = SearchInfo.getInfo(extractor)
         return info.relatedItems
             .asSequence()
             .filterIsInstance<StreamInfoItem>()
+            .filter {
+                // Только обычные/аудио-треки, без прямых эфиров, Shorts и
+                // постов, которые иногда приходят вместе с выдачей.
+                (it.streamType == StreamType.VIDEO_STREAM ||
+                    it.streamType == StreamType.AUDIO_STREAM) &&
+                    !it.isShortFormContent
+            }
             .take(limit)
             .map { it.toTrack(service) }
             .toList()
@@ -276,15 +298,19 @@ object OnlineRepository {
     private val VIDEO_WORDS = listOf(
         "vlog", "влог", "unboxing", "распаковка", "челлендж", "challenge", "prank",
         "обзор", "review", "reaction", "реакция", "interview", "интервью",
-        "podcast", "подкаст", "trailer", "трейлер", "shorts", "тикток", "tiktok",
-        "gameplay", "let's play", "летсплей", "recap", "новости",
+        "podcast", "подкаст", "episode", "эпизод", "trailer", "трейлер",
+        "shorts", "тикток", "tiktok", "gameplay", "let's play", "летсплей",
+        "recap", "новости", "news",
+        "clone hero", "leaderboard", "leaderboards", "beat saber", "beatmap",
+        "full combo", "osu!", "playthrough",
         "клип", "премьера", "premiere", "official video", "music video",
         "video", "видео", "футаж", "врек",
         // стендапы и разговорные форматы
         "стендап", "стенд-ап", "стенд ап", "stand-up", "standup", "comedy",
         "комеди", "комик", "импровизац", "монолог", "скетч", "sketch",
-        "ток-шоу", "talk show", "передач", "выпуск", "лекц", "вебинар",
+        "ток-шоу", "talk show", "ток шоу", "передач", "выпуск", "лекц", "вебинар",
         "озвучк", "репортаж", "эфир", "телеканал", "разговор",
+        "аудиокниг", "audiobook", "радиопередач", "радиоэфир",
     )
 
     private fun isVideoLike(text: String): Boolean {
@@ -293,14 +319,21 @@ object OnlineRepository {
     }
 
     /** Годится ли как песня: и название, и канал должны быть «музыкальными». */
-    private fun looksLikeSong(t: Track, maxSec: Long = MAX_SONG_SEC): Boolean {
+    private fun looksLikeSong(
+        t: Track,
+        maxSec: Long = MAX_SONG_SEC,
+        requireSongSignal: Boolean = false,
+    ): Boolean {
         if (!MusicFilter.isSong(t.title, t.durationMs / 1000, maxSec)) return false
         if (isVideoLike(t.title) || isVideoLike(t.artist)) return false
         if (MusicFilter.isJunkText(t.artist)) return false
         if (MusicFilter.isKidText(t.artist)) return false
         if (MusicFilter.isBlockedChannel(t.artist)) return false
-        // Для YouTube требуем явный «музыкальный» признак: topic-канал или «Исполнитель - Название».
-        if (t.source == TrackSource.YOUTUBE && !isSongSignal(t)) return false
+        // Для «сырых» рекомендаций YouTube требуем явный музыкальный признак.
+        // Для поиска music_songs и чартов это не нужно: там уже только музыка.
+        if (requireSongSignal && t.source == TrackSource.YOUTUBE && !isSongSignal(t)) {
+            return false
+        }
         return true
     }
 
@@ -315,8 +348,7 @@ object OnlineRepository {
     private fun isSongSignal(t: Track): Boolean =
         t.artist.lowercase().contains("topic") || MusicFilter.songLike(t.title)
 
-    private fun isLikelySong(t: Track): Boolean =
-        looksLikeSong(t) && (t.source != TrackSource.YOUTUBE || isSongSignal(t))
+    private fun isLikelySong(t: Track): Boolean = looksLikeSong(t)
 
     /**
      * Оценка трека по факторам стиля. Совпадения слов в названии НЕ используются:
@@ -408,25 +440,28 @@ object OnlineRepository {
         val seedSig = signature(track)
 
         val pool = LinkedHashMap<String, Track>()
-        fun addAll(items: List<Track>) {
+        fun addAll(items: List<Track>, requireSignal: Boolean = false) {
             for (t in items) {
                 if (t.id == track.id) continue
                 if (signature(t) == seedSig) continue
-                if (!looksLikeSong(t)) continue
-                if (t.source == TrackSource.YOUTUBE && !isSongSignal(t)) continue
+                if (!looksLikeSong(t, requireSongSignal = requireSignal)) continue
                 pool.putIfAbsent(t.id, t)
             }
         }
 
-        // 1) рекомендации YouTube (совместные прослушивания)
-        addAll(info.relatedStreams.filterIsInstance<StreamInfoItem>().map { it.toTrack(service) })
-        // 2) другие песни этого же исполнителя
+        // 1) рекомендации YouTube (совместные прослушивания) - здесь могут
+        //    попадаться обычные видео, поэтому нужен музыкальный признак.
+        addAll(
+            info.relatedStreams.filterIsInstance<StreamInfoItem>().map { it.toTrack(service) },
+            requireSignal = true,
+        )
+        // 2) другие песни этого же исполнителя (поиск music_songs уже музыкальный)
         if (artist.isNotBlank()) addAll(searchRaw(service, artist, 25))
 
         val scored = pool.values
             .mapNotNull { t ->
                 val sc = factorScore(t, artistKeys, moods, emptySet(), sounds, years, ru, -1, emptySet())
-                if (sc.isFinite()) t to sc else null
+                if (sc.isFinite() && sc >= 0.0) t to sc else null
             }
             .sortedByDescending { it.second }
             .map { it.first }
@@ -435,7 +470,7 @@ object OnlineRepository {
         val out = ArrayList<Track>()
         val perArtist = HashMap<String, Int>()
         for (t in scored) {
-            val key = t.artist.lowercase()
+            val key = MusicFilter.artistKey(t.artist).ifBlank { t.artist.lowercase() }
             if ((perArtist[key] ?: 0) < 1) {
                 out.add(t)
                 perArtist[key] = (perArtist[key] ?: 0) + 1
@@ -515,7 +550,7 @@ object OnlineRepository {
                     taste.languageFilter,
                     taste.heard,
                 )
-                if (sc.isFinite()) t to sc else null
+                if (sc.isFinite() && sc >= 0.0) t to sc else null
             }
             .sortedByDescending { it.second }
             .map { it.first }
@@ -657,6 +692,67 @@ object OnlineRepository {
         val thumbUrl: String?,
     )
 
+    /**
+     * Поток для отдельного видеоплеера «Просмотр». Сначала пытаемся взять
+     * progressive-видео (в нём уже есть звук), иначе отдаём аудио и рисуем
+     * обложку — так «Просмотр» работает даже для треков без видео.
+     */
+    suspend fun resolveVideo(pageUrl: String): ResolvedVideo = withContext(Dispatchers.IO) {
+        val service = NewPipe.getServiceByUrl(pageUrl)
+        val info = StreamInfo.getInfo(service, pageUrl)
+        val video = info.videoStreams
+            .asSequence()
+            .filter { it.isUrl && !it.url.isNullOrBlank() }
+            .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }
+            .filter { !it.isVideoOnly }
+            .sortedByDescending { it.height }
+            .firstOrNull { it.height in 1..720 }
+            ?: info.videoStreams
+                .asSequence()
+                .filter { it.isUrl && !it.url.isNullOrBlank() }
+                .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }
+                .maxByOrNull { it.height }
+
+        if (video != null) {
+            val url = (video.url ?: video.content).orEmpty()
+            if (url.isNotBlank()) {
+                return@withContext ResolvedVideo(
+                    url = url,
+                    mimeType = video.format?.mimeType,
+                    title = info.name.orEmpty(),
+                    artist = info.uploaderName.orEmpty(),
+                    durationMs = info.duration.coerceAtLeast(0L) * 1000L,
+                    thumbUrl = info.thumbnails?.lastOrNull()?.url,
+                    hasVideo = true,
+                )
+            }
+        }
+
+        val audio = pickAudio(info.audioStreams)
+            ?: throw IllegalStateException("Не удалось получить видеопоток")
+        val url = (audio.url ?: audio.content).orEmpty()
+        if (url.isBlank()) throw IllegalStateException("Пустой адрес потока")
+        ResolvedVideo(
+            url = url,
+            mimeType = audio.format?.mimeType,
+            title = info.name.orEmpty(),
+            artist = info.uploaderName.orEmpty(),
+            durationMs = info.duration.coerceAtLeast(0L) * 1000L,
+            thumbUrl = info.thumbnails?.lastOrNull()?.url,
+            hasVideo = false,
+        )
+    }
+
+    data class ResolvedVideo(
+        val url: String,
+        val mimeType: String?,
+        val title: String,
+        val artist: String,
+        val durationMs: Long,
+        val thumbUrl: String?,
+        val hasVideo: Boolean,
+    )
+
     /** Запасной источник: ищем тот же трек на SoundCloud и берём его поток. */
     suspend fun resolveFallback(title: String): String? = withContext(Dispatchers.IO) {
         val q = title.substringBefore("(").substringBefore("[").trim().ifBlank { title }
@@ -712,11 +808,20 @@ object OnlineRepository {
     fun dedupeByCore(tracks: List<Track>): List<Track> = dedupe(tracks)
 
     fun dedupe(tracks: List<Track>): List<Track> {
-        val seen = HashSet<String>()
         val out = ArrayList<Track>(tracks.size)
         for (t in tracks) {
-            val k = signature(t).ifBlank { key(t) }
-            if (seen.add(k)) out.add(t)
+            val duplicate = out.any { existing ->
+                if (existing.id == t.id) {
+                    true
+                } else if (existing.pageUrl != null && existing.pageUrl == t.pageUrl) {
+                    true
+                } else {
+                    MusicFilter.sameSongCautious(
+                        existing.title, existing.artist, t.title, t.artist,
+                    )
+                }
+            }
+            if (!duplicate) out.add(t)
         }
         return out
     }
@@ -728,7 +833,7 @@ object OnlineRepository {
     fun capPerArtist(tracks: List<Track>, max: Int): List<Track> {
         val counts = HashMap<String, Int>()
         return tracks.filter { t ->
-            val k = t.artist.lowercase()
+            val k = MusicFilter.artistKey(t.artist).ifBlank { t.artist.lowercase() }
             val c = counts.getOrDefault(k, 0)
             if (c >= max) {
                 false
@@ -749,12 +854,13 @@ object OnlineRepository {
         val recentSigs = ArrayDeque<String>()
         while (remaining.isNotEmpty()) {
             var idx = remaining.indexOfFirst {
-                it.artist.lowercase() !in recentArtists && signature(it) !in recentSigs
+                MusicFilter.artistKey(it.artist) !in recentArtists &&
+                    signature(it) !in recentSigs
             }
             if (idx < 0) idx = 0
             val t = remaining.removeAt(idx)
             out.add(t)
-            recentArtists.addLast(t.artist.lowercase())
+            recentArtists.addLast(MusicFilter.artistKey(t.artist))
             recentSigs.addLast(signature(t))
             while (recentArtists.size > cooldown) recentArtists.removeFirst()
             while (recentSigs.size > cooldown) recentSigs.removeFirst()

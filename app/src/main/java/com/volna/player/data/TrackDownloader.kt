@@ -57,6 +57,7 @@ object TrackDownloader {
                 .connectTimeout(20, TimeUnit.SECONDS)
                 .readTimeout(90, TimeUnit.SECONDS)
                 .dns(DoH.dns)
+                .proxySelector(com.volna.player.net.ProxyRuntime.mediaProxySelector)
                 .build()
             client.newCall(
                 Request.Builder()

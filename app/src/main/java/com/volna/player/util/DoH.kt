@@ -18,8 +18,9 @@ import java.util.concurrent.TimeUnit
 object DoH {
 
     private val dohHosts = listOf(
-        "youtube.com", "youtu.be", "googlevideo.com", "ytimg.com",
-        "ggpht.com", "googleusercontent.com", "googleapis.com",
+        "youtube.com", "youtu.be", "youtube-nocookie.com", "yt.be",
+        "googlevideo.com", "ytimg.com", "ggpht.com", "googleusercontent.com",
+        "googleapis.com", "gstatic.com", "google.com",
         "soundcloud.com", "sndcdn.com", "bandcamp.com",
     )
 

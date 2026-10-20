@@ -58,6 +58,10 @@ object SettingsStore {
     private val _godMode = MutableStateFlow(false)
     val godMode: StateFlow<Boolean> = _godMode.asStateFlow()
 
+    /** Локальный обход DPI (ByeDPI) для YouTube/SoundCloud. */
+    private val _bypass = MutableStateFlow(true)
+    val bypass: StateFlow<Boolean> = _bypass.asStateFlow()
+
     fun init(context: Context) {
         if (prefs != null) return
         val p = context.applicationContext
@@ -77,6 +81,7 @@ object SettingsStore {
         _pirat.value = false
         _developer.value = p.getBoolean("developer", false)
         _godMode.value = p.getBoolean("godMode", false)
+        _bypass.value = p.getBoolean("bypass", true)
     }
 
     fun setTheme(id: String) {
@@ -141,5 +146,10 @@ object SettingsStore {
     fun setGodMode(value: Boolean) {
         _godMode.value = value
         prefs?.edit()?.putBoolean("godMode", value)?.apply()
+    }
+
+    fun setBypass(value: Boolean) {
+        _bypass.value = value
+        prefs?.edit()?.putBoolean("bypass", value)?.apply()
     }
 }

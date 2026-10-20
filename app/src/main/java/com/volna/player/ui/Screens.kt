@@ -15,7 +15,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -85,9 +87,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.layout.SubcomposeLayout
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -115,11 +120,14 @@ import androidx.media3.common.Player
 import coil.compose.AsyncImage
 import coil.imageLoader
 import com.volna.player.R
+import com.volna.player.BuildConfig
 import com.volna.player.data.GameStore
 import com.volna.player.data.LibraryStore
 import com.volna.player.data.Playlist
 import com.volna.player.data.SettingsStore
 import com.volna.player.data.Track
+import com.volna.player.net.BypassState
+import com.volna.player.net.ProxyRuntime
 import com.volna.player.player.PlayerViewModel
 import com.volna.player.player.QueueEntry
 import com.volna.player.player.TrendFolder
@@ -128,6 +136,7 @@ import com.volna.player.ui.theme.VolnaPalettes
 import com.volna.player.ui.theme.ThemeReveal
 import kotlinx.coroutines.launch
 import kotlin.math.PI
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
 // ============================ ПОИСК (окошко сверху) ============================
@@ -231,7 +240,7 @@ fun SearchOverlay(vm: PlayerViewModel, onDismiss: () -> Unit, onPlayed: () -> Un
                             itemsIndexed(results) { index, track ->
                                 Column(Modifier.animateItem()) {
                                     TrackRow(track) {
-                                        vm.playTracks(results, index)
+                                        vm.playFromSearch(results, index)
                                         onPlayed()
                                     }
                                     HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
@@ -671,16 +680,13 @@ fun PlaylistsScreen(vm: PlayerViewModel) {
                 TrackRow(track) { vm.playTracks(hist, index) }
             }
             item {
-                AnimatedVisibility(
-                    visible = histExpanded,
-                    enter = expandVertically(tween(260)) + fadeIn(),
-                    exit = shrinkVertically(tween(260)) + fadeOut(),
-                ) {
-                    Column {
-                        hist.drop(2).forEachIndexed { i, track ->
-                            TrackRow(track) { vm.playTracks(hist, i + 2) }
-                        }
-                    }
+                CurtainReveal(
+                    expanded = histExpanded,
+                    count = (hist.size - 2).coerceAtLeast(0),
+                    modifier = Modifier.fillMaxWidth(),
+                ) { i ->
+                    val track = hist[i + 2]
+                    TrackRow(track) { vm.playTracks(hist, i + 2) }
                 }
             }
             item { HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant) }
@@ -901,11 +907,9 @@ fun PlayerScreen(vm: PlayerViewModel) {
                     )
                 }
                 Spacer(Modifier.height(10.dp))
-                Text(
-                    now?.title ?: "Ничего не играет",
+                MarqueeTitle(
+                    text = now?.title ?: "Ничего не играет",
                     style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                 )
                 if (!now?.artist.isNullOrBlank()) {
                     Text(
@@ -1259,6 +1263,72 @@ private fun WaveSeekBar(
     }
 }
 
+/** Раскрытие истории «шторкой»: линия едет вниз, строки проявляются под ней. */
+@Composable
+private fun CurtainReveal(
+    expanded: Boolean,
+    count: Int,
+    modifier: Modifier = Modifier,
+    content: @Composable (Int) -> Unit,
+) {
+    if (count <= 0) return
+    val progress by animateFloatAsState(
+        targetValue = if (expanded) 1f else 0f,
+        animationSpec = tween(700, easing = FastOutSlowInEasing),
+        label = "history-curtain",
+    )
+    val accent = MaterialTheme.colorScheme.primary
+    Box(modifier.clipToBounds()) {
+        SubcomposeLayout(Modifier.fillMaxWidth()) { constraints ->
+            val width = constraints.maxWidth.coerceAtLeast(0)
+            val placeables = (0 until count).map { i ->
+                subcompose(i) { content(i) }
+                    .map { it.measure(Constraints.fixedWidth(width)) }
+            }
+            val heights = placeables.map { list -> list.maxOfOrNull { it.height } ?: 0 }
+            val total = heights.sum()
+            val reveal = (progress * total).roundToInt().coerceIn(0, total)
+            layout(width, reveal) {
+                var y = 0
+                for (i in placeables.indices) {
+                    val h = heights[i]
+                    if (h > 0 && y < reveal) {
+                        val alpha = ((reveal - y).toFloat() / h).coerceIn(0f, 1f)
+                        for (p in placeables[i]) {
+                            p.placeWithLayer(0, y) {
+                                this.alpha = alpha
+                                translationY = (1f - alpha) * 14.dp.toPx()
+                            }
+                        }
+                    }
+                    y += h
+                }
+            }
+        }
+        Canvas(Modifier.matchParentSize()) {
+            if (progress > 0.005f && progress < 0.995f) {
+                val y = size.height - 1.dp.toPx()
+                drawLine(
+                    color = accent,
+                    start = Offset(0f, y),
+                    end = Offset(size.width, y),
+                    strokeWidth = 2.dp.toPx(),
+                    cap = StrokeCap.Round,
+                )
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        listOf(accent.copy(alpha = 0.18f), Color.Transparent),
+                        startY = y - 18.dp.toPx(),
+                        endY = y,
+                    ),
+                    topLeft = Offset(0f, y - 18.dp.toPx()),
+                    size = Size(size.width, 18.dp.toPx()),
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun AddToPlaylistDialog(
     playlists: List<Playlist>,
@@ -1328,6 +1398,12 @@ fun SettingsScreen(vm: PlayerViewModel, onBack: () -> Unit) {
     val fontScale by SettingsStore.fontScale.collectAsState()
     val developer by SettingsStore.developer.collectAsState()
     val godMode by SettingsStore.godMode.collectAsState()
+    val bypass by SettingsStore.bypass.collectAsState()
+    val bypassState by ProxyRuntime.state.collectAsState()
+    val bypassDetail by ProxyRuntime.detail.collectAsState()
+    val updateInfo by vm.updateInfo.collectAsState()
+    val updateProgress by vm.updateProgress.collectAsState()
+    val updateError by vm.updateError.collectAsState()
 
     val density = LocalDensity.current
     val systemFont = context.resources.configuration.fontScale
@@ -1384,6 +1460,49 @@ fun SettingsScreen(vm: PlayerViewModel, onBack: () -> Unit) {
                         )
                     }
 
+                    SectionTitle("Сеть")
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("YouTube без VPN", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                when (bypassState) {
+                                    BypassState.READY -> "Локальный обход работает"
+                                    BypassState.STARTING -> "Запускаю…"
+                                    BypassState.VPN_ACTIVE -> "Пауза: включён VPN"
+                                    BypassState.FAILED -> "Не удалось запустить"
+                                    BypassState.DISABLED -> "Выключено"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = when (bypassState) {
+                                    BypassState.READY -> MaterialTheme.colorScheme.primary
+                                    BypassState.FAILED -> MaterialTheme.colorScheme.error
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
+                        }
+                        Switch(
+                            checked = bypass,
+                            onCheckedChange = { ProxyRuntime.setEnabled(context, it) },
+                        )
+                    }
+                    if (bypassDetail.isNotBlank()) {
+                        Text(
+                            bypassDetail,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = { ProxyRuntime.retry(context) }) { Text("Проверить обход") }
+                    }
+                    Text(
+                        "ByeDPI работает только на телефоне: трафик не уходит на сторонний сервер. " +
+                            "При включённом VPN обход приостанавливается, чтобы не конфликтовать.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+
                     SectionTitle("Размер обложки")
                     Slider(
                         value = artworkScale,
@@ -1420,6 +1539,42 @@ fun SettingsScreen(vm: PlayerViewModel, onBack: () -> Unit) {
                         }
                     }
 
+                    updateInfo?.let { info ->
+                        SectionTitle("Обновление")
+                        Text(
+                            "Доступна версия ${info.version}. У тебя ${BuildConfig.VERSION_NAME}.",
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                        updateProgress?.let { p ->
+                            LinearProgressIndicator(
+                                progress = { p },
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                            )
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Button(
+                                onClick = { vm.downloadAndInstallUpdate() },
+                                enabled = updateProgress == null,
+                            ) {
+                                Text(
+                                    when {
+                                        updateProgress != null -> "Загрузка…"
+                                        info.apkUrl == null -> "Открыть GitHub"
+                                        else -> "Скачать и установить"
+                                    },
+                                )
+                            }
+                            TextButton(onClick = { vm.openUpdateRelease() }) { Text("На GitHub") }
+                        }
+                        updateError?.let {
+                            Text(
+                                it,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+
                     SectionTitle("Данные")
                     OutlinedButton(onClick = {
                         vm.clearCaches()
@@ -1430,6 +1585,14 @@ fun SettingsScreen(vm: PlayerViewModel, onBack: () -> Unit) {
                     }) { Text("Очистить кэш") }
 
                     Spacer(Modifier.height(28.dp))
+                    Text(
+                        "Версия ${BuildConfig.VERSION_NAME}",
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.End,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(16.dp))
                 }
             }
         }
@@ -1470,8 +1633,7 @@ private fun ThemeChip(
             .clip(CircleShape)
             .background(if (selected) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface)
             .clickable {
-                ThemeReveal.x = frac.x
-                ThemeReveal.y = frac.y
+                ThemeReveal.trigger(frac.x, frac.y)
                 onClick()
             },
         contentAlignment = Alignment.Center,

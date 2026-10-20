@@ -10,39 +10,57 @@ package com.volna.player.data
 object MusicFilter {
 
     private val BAD = Regex(
-        "(?i)(" +
-            "mix\\b|микс\\w*|сборник\\w*|плейлист\\w*|playlist\\w*|compilation\\w*|megamix\\w*|" +
-            "non-?stop\\w*|hours?\\b|час(?:а|ов|ы)?\\b|best\\b|хит(?:ы|ов)?\\b|greatest\\b|" +
-            "album\\b|альбом\\w*|full\\b|полн\\w*|концерт\\w*|stream\\w*|radio\\b|" +
-            "подборк\\w*|top\\b|топ\\b|podcast\\w*|подкаст\\w*|audiobook\\w*|аудиокниг\\w*|" +
-            "trailer\\w*|трейлер\\w*|обзор\\w*|review\\w*|фильм\\w*|сериал\\w*|сцен\\w*|дубл\\w*|" +
+        "(?iu)(" +
+            "сборник\\w*|плейлист\\w*|playlist\\w*|compilation\\w*|megamix\\w*|" +
+            "non-?stop\\w*|continuous\\s+mix|dj\\s+mix|hours?\\b|час(?:а|ов|ы)?\\b|" +
+            "greatest\\b|хит(?:ы|ов)?\\b|" +
+            "альбом\\w*|full\\s+(?:album|concert|movie|stream)|" +
+            "концерт\\w*|" +
+            "подборк\\w*|" +
+            "podcast\\w*|подкаст\\w*|audiobook\\w*|аудиокниг\\w*|" +
+            "trailer\\w*|трейлер\\w*|обзор\\w*|review\\w*|" +
+            "сериал\\w*|дубл\\w*|" +
             "интервью|interview\\w*|реакц\\w*|реценз\\w*|разбор\\w*|новост\\w*|news\\b|" +
-            "gameplay\\w*|летсплей\\w*|фрагмент\\w*|отрыв\\w*|кадр\\w*|момент\\w*|эпизод\\w*|" +
-            "episode\\w*|пранк\\w*|шоу\\b|пресс\\w*|shorts|тикток|tiktok|нарезк\\w*|компиляц\\w*|" +
+            "gameplay\\w*|летсплей\\w*|фрагмент\\w*|отрыв\\w*|эпизод\\w*|episode\\w*|" +
+            "clone\\s*hero|leaderboards?\\w*|beat\\s*saber|beatmap\\w*|full\\s*combo|osu!|playthrough\\w*|" +
+            "\\bfc\\s*\\d{2,}|" +
+            "пранк\\w*|шоу\\b|пресс\\w*|shorts|тикток|tiktok|нарезк\\w*|компиляц\\w*|" +
+            "season\\s*\\d+|сезон\\s*\\d+|ep\\.?\\s*\\d+|" +
+            "live\\s*stream|прямой\\s*эфир|прямая\\s*трансляция|" +
             "прикол\\w*|смешн\\w*|ytpbr|60fps|hd/60|перезалив|reupload|" +
             // стендапы и прочий разговорный/не-музыкальный контент
             "стендап\\w*|стенд-?ап\\w*|stand-?up\\w*|comedy\\w*|комеди\\w*|комик\\w*|" +
             "импровизац\\w*|монолог\\w*|скетч\\w*|sketch\\w*|ток-?шоу|talk\\s*show|" +
             "передач\\w*|выпуск\\w*|лекц\\w*|вебинар\\w*|озвучк\\w*|репортаж\\w*|эфир\\w*|" +
-            "телеканал\\w*|разговор\\w*|вечерн\\w*\\s+шоу|пусть\\s+говорят" +
-            ")"
+            "телеканал\\w*|разговор\\w*|вечерн\\w*\\s+шоу|пусть\\s+говорят|" +
+            "премьер\\w*|premiere\\w*|клип\\w*|официальн\\w*\\s+видео|official\\s+video|" +
+            "music\\s+video|полный\\s+альбом|" +
+            "radio\\s+(?:show|station|stream)|радиопередач\\w*|радиоэфир\\w*" +
+            ")",
     )
 
     // "1 час", "1 hour", длительность вида 1:02:33 в заголовке
-    private val BAD2 = Regex("(?i)(\\d{1,2}\\s*(час|hour|h)\\b|1\\s*час|one hour|\\d{1,2}:\\d{2}:\\d{2})")
+    private val BAD2 = Regex("(?iu)(\\d{1,2}\\s*(час|hour|h)\\b|1\\s*час|one hour|\\d{1,2}:\\d{2}:\\d{2})")
 
     private val STOP = setOf(
         "feat", "ft", "official", "video", "music", "audio", "the", "and", "with",
         "prod", "version", "lyrics", "lyric", "remix", "song", "track",
     )
 
-    private val VIDEOISH = Regex("(?i)(клип|official video|music video|\\bmv\\b|lyric|live)")
+    private val VIDEOISH = Regex("(?iu)(клип|official video|music video|\\bmv\\b|lyric|live)")
+
+    // «Mix» внутри скобок — это версия песни (2013 Mix), а не сборник.
+    // Сборником считаем только mix/микс вне скобок.
+    private val MIX_WORD = Regex("(?iu)\\b(mix|микс)\\b")
+    private val BRACKETS = Regex("\\([^)]*\\)|\\[[^\\]]*\\]")
 
     /** Песня ли это (без сборников/обзоров, нормальной длительности). */
     fun isSong(title: String, durationSec: Long, maxSec: Long = 600, minSec: Long = 45): Boolean {
         if (title.isBlank()) return false
         if (BAD.containsMatchIn(title) || BAD2.containsMatchIn(title)) return false
         if (KIDS.containsMatchIn(title)) return false
+        val outsideBrackets = title.replace(BRACKETS, " ")
+        if (MIX_WORD.containsMatchIn(outsideBrackets)) return false
         if (durationSec in 1 until minSec) return false
         if (durationSec > maxSec) return false
         return true
@@ -50,12 +68,16 @@ object MusicFilter {
 
     /** Служебный/нежелательный текст (сборники, обзоры, миксы и т.п.). */
     fun isJunkText(text: String): Boolean =
-        text.isNotBlank() && (BAD.containsMatchIn(text) || BAD2.containsMatchIn(text))
+        text.isNotBlank() && (
+            BAD.containsMatchIn(text) ||
+                BAD2.containsMatchIn(text) ||
+                MIX_WORD.containsMatchIn(text.replace(BRACKETS, " "))
+            )
 
     /** Детский контент (мультики, колыбельные, «Маша и Медведь» и т.п.). */
     private val KIDS = Regex(
-        "(?i)(маша\\s*и\\s*медвед|детск|для\\s*детей|детям|мультик|мультфильм|мультсериал|" +
-            "колыбельн|сказк|песенки\\s*для|развивающ|малыш|кроха|" +
+        "(?iu)(маша\\s*и\\s*медвед|детск|для\\s*детей|детям|мультик|мультфильм|мультсериал|" +
+            "колыбельн|сказк\\w*\\s+для|аудиосказк|песенки\\s*для|развивающ|малыш|кроха|" +
             "синий\\s*трактор|кукутики|малышарики|фиксики|смешарики|барбоскины|лунтик|" +
             "kids|children|nursery|cartoon|lullaby|toddler|baby\\s*song)",
     )
@@ -64,7 +86,7 @@ object MusicFilter {
 
     /** Каналы, которые не берём ни в поиск, ни в очередь. */
     private val BLOCKED_CHANNELS = Regex(
-        "(?i)(internet\\s*jesus|internetjesus|the8bitdrummer|8bitdrummer|8-?bit\\s*drummer)",
+        "(?iu)(internet\\s*jesus|internetjesus|the8bitdrummer|8bitdrummer|8-?bit\\s*drummer)",
     )
 
     fun isBlockedChannel(text: String): Boolean =
@@ -182,15 +204,88 @@ object MusicFilter {
     /** Нормализованное название для поиска дублей ("Numb (Official Video)" -> "numb"). */
     fun titleKey(title: String): String {
         var s = title.lowercase()
-        s = s.replace(Regex("(?i)\\s(feat|ft|prod)\\.?\\s.*$"), " ")
+        s = s.replace(Regex("(?iu)\\s(feat|ft|prod)\\.?\\s.*$"), " ")
         s = s.replace(Regex("\\([^)]*\\)"), " ")
         s = s.replace(Regex("\\[[^\\]]*\\]"), " ")
         s = s.replace(
-            Regex("(?i)(official|video|lyrics?|audio|remix|feat\\.?|ft\\.?|\\bhd\\b|\\b4k\\b|\\bmv\\b|visualizer|clip)"),
+            Regex("(?iu)(official|video|lyrics?|audio|remix|feat\\.?|ft\\.?|\\bhd\\b|\\b4k\\b|\\bmv\\b|visualizer|clip)"),
             " ",
         )
         s = s.replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
         return s
+    }
+
+    // ---- Осторожная склейка дублей -------------------------------------
+    // Для поиска/очереди: убираем только сервисные пометки, но НЕ трогаем
+    // live/remix/cover, чтобы не склеить разные версии одной песни.
+
+    private val SERVICE_PAREN = Regex(
+        "(?iu)\\(\\s*(official\\s*(music\\s*)?video|official\\s*audio|official|" +
+            "lyrics?|lyric\\s*video|audio|visualizer|hd|4k|mv|m/v|music\\s*video|" +
+            "remaster(ed)?(\\s*\\d{4})?|explicit|clean)\\s*\\)",
+    )
+    private val SERVICE_BRACKET = Regex(
+        "(?iu)\\[\\s*(official\\s*(music\\s*)?video|official\\s*audio|official|" +
+            "lyrics?|lyric\\s*video|audio|visualizer|hd|4k|mv|m/v|music\\s*video|" +
+            "remaster(ed)?(\\s*\\d{4})?|explicit|clean)\\s*\\]",
+    )
+    private val SERVICE_WORD = Regex(
+        "(?iu)\\b(official\\s*(music\\s*)?video|official\\s*audio|" +
+            "lyric\\s*video|music\\s*video|visualizer)\\b",
+    )
+    private val FEAT_TAIL = Regex("(?iu)\\s(feat|ft|prod)\\.?\\s.*$")
+
+    /** Исполнитель без служебных пометок: "Artist - Topic" -> "artist". */
+    fun artistKey(artist: String): String {
+        var s = artist.lowercase()
+        s = s.replace(Regex("(?iu)\\s*[-–—]\\s*topic\\b"), " ")
+        s = s.replace(Regex("(?iu)(vevo|topic|official)$"), " ")
+        s = s.replace(Regex("(?iu)\\b(vevo|official|topic|music|channel|records|feat|ft|prod)\\b"), " ")
+        s = s.replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
+        return s
+    }
+
+    /**
+     * Ключ осторожной склейки: исполнитель + ядро названия. Сервисные
+     * пометки (Official Video, Lyrics, HD, Remastered) убираются, а
+     * Live/Remix/Cover/Slowed остаются разными версиями.
+     */
+    fun dedupeKey(title: String, artist: String): String {
+        var s = title.lowercase()
+        s = s.replace(SERVICE_PAREN, " ")
+        s = s.replace(SERVICE_BRACKET, " ")
+        s = s.replace(FEAT_TAIL, " ")
+        s = s.replace(SERVICE_WORD, " ")
+        val a = artistKey(artist)
+        if (a.isNotBlank()) {
+            s = s.replace(Regex("^\\s*${Regex.escape(a)}\\s*[-–—:]\\s*"), " ")
+        }
+        s = s.replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
+        return (if (a.isBlank()) "" else "$a|") + s
+    }
+
+    /** Совпадает ли название/исполнитель настолько, чтобы считать это дублем. */
+    fun sameSongCautious(
+        aTitle: String,
+        aArtist: String,
+        bTitle: String,
+        bArtist: String,
+    ): Boolean {
+        val ka = dedupeKey(aTitle, aArtist)
+        val kb = dedupeKey(bTitle, bArtist)
+        if (ka.isBlank() || kb.isBlank()) return false
+        if (ka == kb) return true
+        val ta = ka.substringAfter('|')
+        val tb = kb.substringAfter('|')
+        val aa = ka.substringBefore('|')
+        val ab = kb.substringBefore('|')
+        if (ta.length >= 3 && ta == tb) {
+            // Один и тот же текст названия; исполнители либо совпали,
+            // либо один из них пустой/является префиксом другого.
+            return aa.isBlank() || ab.isBlank() || aa == ab ||
+                (aa.length >= 4 && ab.length >= 4 && (aa.contains(ab) || ab.contains(aa)))
+        }
+        return false
     }
 
     /** «Ядро» песни: первые значимые слова подписи (для склейки вариантов одной песни). */
