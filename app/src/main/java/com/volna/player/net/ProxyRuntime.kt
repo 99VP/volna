@@ -180,8 +180,32 @@ object ProxyRuntime {
         ready = false
         stop()
 
-        // 1) Быстрый чистый Kotlin-обход: DoH + разрезание первого TLS-пакета.
+        // 1) ByeDPI с одной рабочей стратегией --disorder. Без перебора
+        //    split/fake и без долгих проверок.
         _detail.value = "Запуск…"
+        if (proxy.start(0)) {
+            if (healthCheckSocks(proxy.port)) {
+                lastCheckAt = System.currentTimeMillis()
+                ready = true
+                _state.value = BypassState.READY
+                return
+            }
+            val relay = LocalHttpProxy(proxy.port)
+            httpProxy = relay
+            relay.start()
+            if (healthCheckRelay(relay.port)) {
+                lastCheckAt = System.currentTimeMillis()
+                useRelay = true
+                ready = true
+                _state.value = BypassState.READY
+                return
+            }
+            relay.stop()
+            httpProxy = null
+            proxy.stop()
+        }
+
+        // 2) Если disorder не сработал — чистый Kotlin-обход с DoH.
         val split = LocalHttpProxy(0)
         httpProxy = split
         useRelay = true
@@ -195,35 +219,9 @@ object ProxyRuntime {
         split.stop()
         httpProxy = null
         useRelay = false
-
-        // 2) Запасной ByeDPI, только если Kotlin-обход не подтвердился.
-        var ok = false
-        for (strategy in 0..1) {
-            if (!proxy.start(strategy)) continue
-            if (healthCheckSocks(proxy.port)) {
-                ok = true
-                break
-            }
-            val relay = LocalHttpProxy(proxy.port)
-            httpProxy = relay
-            relay.start()
-            if (healthCheckRelay(relay.port)) {
-                useRelay = true
-                ok = true
-                break
-            }
-            relay.stop()
-            httpProxy = null
-            proxy.stop()
-        }
+        stop()
         lastCheckAt = System.currentTimeMillis()
-        if (ok) {
-            ready = true
-            _state.value = BypassState.READY
-        } else {
-            stop()
-            _state.value = BypassState.FAILED
-        }
+        _state.value = BypassState.FAILED
     }
 
     private fun stop() {
