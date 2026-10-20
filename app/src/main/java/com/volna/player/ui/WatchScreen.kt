@@ -237,7 +237,7 @@ fun WatchScreen(
     }
 
     DisposableEffect(Unit) {
-        onDispose { roomJob?.cancel() }
+        onDispose { roomJob?.cancel(); WatchRoomClient.stopStream() }
     }
 
     DisposableEffect(lifecycleOwner) {
@@ -349,35 +349,60 @@ fun WatchScreen(
         }
     }
 
+    fun applyRoomState(state: com.volna.player.data.WatchRoomState) {
+        if (state.video.isBlank()) return
+        if (state.video != currentUrl) {
+            currentUrl = state.video
+            urlText = state.video
+            pendingStartMs = state.positionMs
+            resumePlaying = state.playing
+            qualityReload = false
+            playNonce++
+        } else {
+            if (state.playing != player.isPlaying) {
+                if (state.playing) player.play() else player.pause()
+            }
+            if (abs(player.currentPosition - state.positionMs) > 2500L) {
+                player.seekTo(state.positionMs)
+            }
+        }
+    }
+
     fun startRoomLoop(base: String, id: String, host: Boolean) {
         roomJob?.cancel()
         roomJob = scope.launch {
-            val interval = if (base.isBlank()) 5000L else 1200L
-            while (isActive) {
-                delay(interval)
-                if (host) {
+            if (host) {
+                var lastVideo = ""
+                var lastPlaying = player.isPlaying
+                var lastPos = player.currentPosition
+                var lastAt = System.currentTimeMillis()
+                while (isActive) {
+                    delay(2000)
                     val url = currentUrl ?: continue
-                    runCatching {
-                        WatchRoomClient.update(base, id, url, player.currentPosition, player.isPlaying)
+                    val now = System.currentTimeMillis()
+                    val expected = lastPos + if (lastPlaying) now - lastAt else 0L
+                    val changed = url != lastVideo ||
+                        player.isPlaying != lastPlaying ||
+                        abs(player.currentPosition - expected) > 3000L
+                    if (changed) {
+                        runCatching {
+                            WatchRoomClient.update(base, id, url, player.currentPosition, player.isPlaying)
+                        }
+                        lastVideo = url
+                        lastPlaying = player.isPlaying
+                        lastPos = player.currentPosition
+                        lastAt = now
                     }
-                } else {
+                }
+            } else if (base.isBlank()) {
+                WatchRoomClient.listenNtfy(id) { state ->
+                    scope.launch { applyRoomState(state) }
+                }
+            } else {
+                while (isActive) {
+                    delay(1200)
                     val state = runCatching { WatchRoomClient.get(base, id) }.getOrNull() ?: continue
-                    if (state.video.isBlank()) continue
-                    if (state.video != currentUrl) {
-                        currentUrl = state.video
-                        urlText = state.video
-                        pendingStartMs = state.positionMs
-                        resumePlaying = state.playing
-                        qualityReload = false
-                        playNonce++
-                    } else {
-                        if (state.playing != player.isPlaying) {
-                            if (state.playing) player.play() else player.pause()
-                        }
-                        if (abs(player.currentPosition - state.positionMs) > 2500L) {
-                            player.seekTo(state.positionMs)
-                        }
-                    }
+                    applyRoomState(state)
                 }
             }
         }

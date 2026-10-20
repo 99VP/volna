@@ -2,6 +2,7 @@ package com.volna.player.data
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.Call
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -9,6 +10,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicReference
 
 data class WatchRoomState(
     val video: String,
@@ -25,6 +27,8 @@ object WatchRoomClient {
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
         .build()
+
+    private val streamCall = AtomicReference<Call?>(null)
 
     private fun base(url: String): String = url.trim().trimEnd('/')
 
@@ -56,25 +60,58 @@ object WatchRoomClient {
             .build()
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code}")
-            val lines = response.body?.string().orEmpty().lineSequence()
             var last: WatchRoomState? = null
-            for (line in lines) {
-                val message = runCatching {
-                    JSONObject(line).optString("message")
-                }.getOrNull().orEmpty()
-                if (message.isBlank()) continue
-                val json = runCatching { JSONObject(message) }.getOrNull() ?: continue
-                val video = json.optString("video")
-                if (video.isBlank()) continue
-                last = WatchRoomState(
-                    video = video,
-                    positionMs = json.optLong("position"),
-                    playing = json.optBoolean("playing"),
-                    updatedAt = json.optLong("updatedAt"),
-                )
+            for (line in response.body?.string().orEmpty().lineSequence()) {
+                val state = parseNtfyLine(line) ?: continue
+                last = state
             }
             return last ?: throw IllegalStateException("Комната пуста")
         }
+    }
+
+    /** Поток новых сообщений ntfy: без частого polling. */
+    suspend fun listenNtfy(roomId: String, onState: (WatchRoomState) -> Unit) =
+        withContext(Dispatchers.IO) {
+            val streamClient = client.newBuilder()
+                .readTimeout(0, TimeUnit.SECONDS)
+                .build()
+            val request = Request.Builder()
+                .url("https://ntfy.sh/" + topic(roomId) + "/json")
+                .get()
+                .build()
+            val call = streamClient.newCall(request)
+            streamCall.set(call)
+            try {
+                call.execute().use { response ->
+                    if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code}")
+                    val source = response.body?.source() ?: return@withContext
+                    while (true) {
+                        val line = source.readUtf8Line() ?: break
+                        val state = parseNtfyLine(line) ?: continue
+                        onState(state)
+                    }
+                }
+            } finally {
+                streamCall.compareAndSet(call, null)
+            }
+        }
+
+    fun stopStream() {
+        streamCall.getAndSet(null)?.cancel()
+    }
+
+    private fun parseNtfyLine(line: String): WatchRoomState? {
+        val message = runCatching { JSONObject(line).optString("message") }.getOrNull().orEmpty()
+        if (message.isBlank()) return null
+        val json = runCatching { JSONObject(message) }.getOrNull() ?: return null
+        val video = json.optString("video")
+        if (video.isBlank()) return null
+        return WatchRoomState(
+            video = video,
+            positionMs = json.optLong("position"),
+            playing = json.optBoolean("playing"),
+            updatedAt = json.optLong("updatedAt"),
+        )
     }
 
     suspend fun create(

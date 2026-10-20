@@ -1,6 +1,9 @@
 # Volna watch rooms
 
-Tiny room server for synchronized watching. Standard library only.
+The Android app uses the public `ntfy.sh` relay by default, so a server is not
+required. This tiny server is optional if you want your own rooms.
+
+Standard library only.
 
 ```bash
 python3 server.py --host 127.0.0.1 --port 8787
