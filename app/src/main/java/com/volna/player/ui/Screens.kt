@@ -1492,7 +1492,7 @@ fun SettingsScreen(vm: PlayerViewModel, onBack: () -> Unit) {
                         value = watchServer,
                         onValueChange = { SettingsStore.setWatchServer(it) },
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("https://сервер-комнат") },
+                        placeholder = { Text("ntfy.sh или свой HTTPS-сервер") },
                         singleLine = true,
                     )
 

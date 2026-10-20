@@ -320,7 +320,7 @@ fun WatchScreen(
                     appendQueryParameter("t", seconds.toString())
                 } else {
                     appendQueryParameter("room", room)
-                    appendQueryParameter("server", roomBase())
+                    if (roomBase().isNotBlank()) appendQueryParameter("server", roomBase())
                 }
             }
             .build()
@@ -331,7 +331,7 @@ fun WatchScreen(
                     appendQueryParameter("t", seconds.toString())
                 } else {
                     appendQueryParameter("room", room)
-                    appendQueryParameter("server", roomBase())
+                    if (roomBase().isNotBlank()) appendQueryParameter("server", roomBase())
                 }
             }
             .build()
@@ -352,8 +352,9 @@ fun WatchScreen(
     fun startRoomLoop(base: String, id: String, host: Boolean) {
         roomJob?.cancel()
         roomJob = scope.launch {
+            val interval = if (base.isBlank()) 5000L else 1200L
             while (isActive) {
-                delay(1200)
+                delay(interval)
                 if (host) {
                     val url = currentUrl ?: continue
                     runCatching {
@@ -385,10 +386,6 @@ fun WatchScreen(
     fun createRoom() {
         val base = roomBase()
         val url = currentUrl
-        if (base.isBlank()) {
-            roomError = "Укажите сервер в настройках"
-            return
-        }
         if (url.isNullOrBlank()) {
             roomError = "Сначала включите видео"
             return
@@ -415,10 +412,6 @@ fun WatchScreen(
     fun joinRoom() {
         val base = roomBase()
         val code = roomCode.trim()
-        if (base.isBlank()) {
-            roomError = "Укажите сервер в настройках"
-            return
-        }
         if (code.isBlank()) {
             roomError = "Введите код комнаты"
             return
@@ -446,7 +439,7 @@ fun WatchScreen(
 
     LaunchedEffect(shareRequest) {
         if (shareRequest > 0) {
-            if (configuredServer.isBlank() || currentUrl == null) {
+            if (currentUrl == null) {
                 roomDialog = true
             } else {
                 createRoom()
@@ -457,7 +450,7 @@ fun WatchScreen(
     LaunchedEffect(savedRoom, savedRoomServer) {
         val code = savedRoom?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
         val base = savedRoomServer?.takeIf { it.isNotBlank() } ?: configuredServer
-        if (base.isBlank() || roomId == code) return@LaunchedEffect
+        if (roomId == code) return@LaunchedEffect
         SettingsStore.setWatchServer(base)
         roomCode = code
         joinRoom()
@@ -611,7 +604,7 @@ fun WatchScreen(
                         TextButton(onClick = { share(it) }) { Text("Поделиться") }
                     }
                     Text(
-                        "Сервер: ${roomBase().ifBlank { "не задан" }}",
+                        "Сервер: ${roomBase().ifBlank { "ntfy.sh" }}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 8.dp),
