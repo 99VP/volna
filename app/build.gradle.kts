@@ -14,22 +14,13 @@ val keystoreProps = Properties().apply {
 }
 val hasReleaseKeystore = !keystoreProps.getProperty("storeFile").isNullOrBlank()
 
-// Идентификатор сборки: коммит + время коммита. Позволяет обновлять APK
-// в рамках одной версии 1.1 и понимать, что на GitHub лежит более новая сборка.
-val buildId: String = runCatching {
-    fun git(vararg args: String): String {
-        val process = ProcessBuilder("git", *args)
-            .directory(rootDir)
-            .redirectErrorStream(true)
-            .start()
-        val text = process.inputStream.bufferedReader().readText().trim()
-        process.waitFor()
-        return text
-    }
-    val hash = git("rev-parse", "--short", "HEAD")
-    val time = git("log", "-1", "--format=%ct")
-    if (hash.isBlank() || time.isBlank()) "dev-${System.currentTimeMillis()}" else "$hash-$time"
-}.getOrDefault("dev-${System.currentTimeMillis()}")
+// Идентификатор сборки в формате 1.1.N. N хранится в build-number.txt
+// и увеличивается при выпуске каждого нового APK.
+val buildNumber = rootProject.file("build-number.txt")
+    .takeIf { it.exists() }
+    ?.readText()?.trim()?.toIntOrNull() ?: 1
+val buildId = "1.1.$buildNumber"
+
 
 android {
     namespace = "com.volna.player"
