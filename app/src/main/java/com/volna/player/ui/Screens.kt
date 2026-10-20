@@ -1002,11 +1002,10 @@ fun PlayerScreen(vm: PlayerViewModel) {
         ) {
             Column(Modifier.fillMaxWidth().then(swipe)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    AsyncImage(
+                    VolnaArtwork(
                         model = now?.artworkUri,
-                        contentDescription = null,
+                        isLocal = current?.isLocal == true,
                         modifier = Modifier.size(42.dp).clip(RoundedCornerShape(12.dp)),
-                        contentScale = ContentScale.Crop,
                     )
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {

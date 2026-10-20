@@ -4,8 +4,6 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
@@ -110,17 +108,29 @@ import kotlin.math.abs
 
 private const val WATCH_PAGE_URL = "https://99vp.github.io/volna/watch/"
 
+enum class WatchFullscreenMode { NORMAL, LANDSCAPE, PORTRAIT }
+
+private fun WatchFullscreenMode.next(isShort: Boolean): WatchFullscreenMode = when (this) {
+    WatchFullscreenMode.NORMAL ->
+        if (isShort) WatchFullscreenMode.PORTRAIT else WatchFullscreenMode.LANDSCAPE
+    WatchFullscreenMode.LANDSCAPE ->
+        if (isShort) WatchFullscreenMode.NORMAL else WatchFullscreenMode.PORTRAIT
+    WatchFullscreenMode.PORTRAIT ->
+        if (isShort) WatchFullscreenMode.LANDSCAPE else WatchFullscreenMode.NORMAL
+}
+
 private val SPEEDS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
 
 @Composable
 fun WatchScreen(
     vm: PlayerViewModel,
-    fullscreen: Boolean,
+    fullscreenMode: WatchFullscreenMode,
     onBack: () -> Unit,
-    onFullscreen: (Boolean) -> Unit,
+    onFullscreenMode: (WatchFullscreenMode) -> Unit,
     shareRequest: Int,
 ) {
     val context = LocalContext.current
+    val fullscreen = fullscreenMode != WatchFullscreenMode.NORMAL
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     val savedUrl by vm.watchUrl.collectAsState()
@@ -167,6 +177,22 @@ fun WatchScreen(
     var fallbackTried by remember { mutableStateOf(false) }
     var nextIn by remember { mutableIntStateOf(0) }
     var nextUrl by remember { mutableStateOf<String?>(null) }
+
+    fun nextFullscreenMode(): WatchFullscreenMode =
+        fullscreenMode.next(resolved?.isShort == true)
+
+    fun changeFullscreen(target: WatchFullscreenMode) {
+        if (target == fullscreenMode) return
+        scope.launch {
+            // Сначала прячем шторки в текущей ориентации, затем поворачиваем
+            // экран и выпускаем их уже с нужной стороны.
+            controlsVisible = false
+            delay(240)
+            onFullscreenMode(target)
+            delay(360)
+            controlsVisible = true
+        }
+    }
 
     val httpClient = remember {
         OkHttpClient.Builder()
@@ -627,7 +653,7 @@ fun WatchScreen(
     }
 
     val gestureModifier = Modifier
-        .pointerInput(player, fullscreen, controlsVisible) {
+        .pointerInput(player, fullscreenMode, controlsVisible) {
             detectTapGestures(
                 onTap = {
                     if (fullscreen) {
@@ -649,6 +675,15 @@ fun WatchScreen(
                             seekFeedback += 5
                             seekFeedbackLeft = false
                             seekFeedbackKey++
+                        }
+                        else -> {
+                            changeFullscreen(
+                                if (fullscreenMode == WatchFullscreenMode.NORMAL) {
+                                    nextFullscreenMode()
+                                } else {
+                                    WatchFullscreenMode.NORMAL
+                                },
+                            )
                         }
                     }
                 },
@@ -681,11 +716,11 @@ fun WatchScreen(
                     enter = slideInVertically(
                         initialOffsetY = { -it },
                         animationSpec = tween(260),
-                    ) + fadeIn(tween(180)),
+                    ),
                     exit = slideOutVertically(
                         targetOffsetY = { -it },
                         animationSpec = tween(220),
-                    ) + fadeOut(tween(150)),
+                    ),
                 ) {
                     Row(
                         Modifier
@@ -717,11 +752,11 @@ fun WatchScreen(
                     enter = slideInVertically(
                         initialOffsetY = { it },
                         animationSpec = tween(260),
-                    ) + fadeIn(tween(180)),
+                    ),
                     exit = slideOutVertically(
                         targetOffsetY = { it },
                         animationSpec = tween(220),
-                    ) + fadeOut(tween(150)),
+                    ),
                 ) {
                     Column(
                         Modifier
@@ -763,8 +798,9 @@ fun WatchScreen(
                             },
                             onPrev = { playQueue(-1) },
                             onNext = { playQueue(1) },
-                            fullscreen = true,
-                            onFullscreen = { onFullscreen(false) },
+                            fullscreenMode = fullscreenMode,
+                            nextFullscreenMode = nextFullscreenMode(),
+                            onFullscreen = { changeFullscreen(nextFullscreenMode()) },
                         )
                     }
                 }
@@ -835,8 +871,11 @@ fun WatchScreen(
             },
             onPrev = { playQueue(-1) },
             onNext = { playQueue(1) },
-            fullscreen = false,
-            onFullscreen = { controlsVisible = true; onFullscreen(true) },
+            fullscreenMode = fullscreenMode,
+            nextFullscreenMode = nextFullscreenMode(),
+            onFullscreen = {
+                changeFullscreen(nextFullscreenMode())
+            },
         )
         Spacer(Modifier.height(10.dp))
 
@@ -1038,7 +1077,8 @@ private fun WatchControls(
     onQuality: (Int?) -> Unit,
     onPrev: () -> Unit,
     onNext: () -> Unit,
-    fullscreen: Boolean,
+    fullscreenMode: WatchFullscreenMode,
+    nextFullscreenMode: WatchFullscreenMode,
     onFullscreen: () -> Unit,
 ) {
     val speedControl: @Composable () -> Unit = { SpeedControl(speed, onSpeed) }
@@ -1046,10 +1086,20 @@ private fun WatchControls(
         QualityControl(quality, qualities, onQuality)
     }
     val fullscreenButton: @Composable () -> Unit = {
+        val icon = when (nextFullscreenMode) {
+            WatchFullscreenMode.NORMAL -> R.drawable.ic_fullscreen_exit
+            WatchFullscreenMode.LANDSCAPE -> R.drawable.ic_fullscreen
+            WatchFullscreenMode.PORTRAIT -> R.drawable.ic_fullscreen_portrait
+        }
+        val label = when (nextFullscreenMode) {
+            WatchFullscreenMode.NORMAL -> "Выйти из полного экрана"
+            WatchFullscreenMode.LANDSCAPE -> "Горизонтальный полный экран"
+            WatchFullscreenMode.PORTRAIT -> "Вертикальный полный экран"
+        }
         OutlinedIconButton(onClick = onFullscreen, modifier = Modifier.size(40.dp)) {
             Icon(
-                painterResource(if (fullscreen) R.drawable.ic_fullscreen_exit else R.drawable.ic_fullscreen),
-                if (fullscreen) "Свернуть" else "На весь экран",
+                painterResource(icon),
+                label,
                 modifier = Modifier.size(22.dp),
             )
         }

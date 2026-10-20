@@ -106,7 +106,8 @@ fun VolnaRoot(
     val context = LocalContext.current
     var showSearch by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
-    var watchFullscreen by remember { mutableStateOf(false) }
+    var watchFullscreenMode by remember { mutableStateOf(WatchFullscreenMode.NORMAL) }
+    val watchFullscreen = watchFullscreenMode != WatchFullscreenMode.NORMAL
     var shareWatchRequest by remember { mutableIntStateOf(0) }
     val pirat by vm.pirat.collectAsState()
     val piratMessage by vm.piratMessage.collectAsState()
@@ -120,12 +121,13 @@ fun VolnaRoot(
     val scope = rememberCoroutineScope()
     val activity = context as? Activity
 
-    LaunchedEffect(watchFullscreen) {
+    LaunchedEffect(watchFullscreenMode) {
         val a = activity ?: return@LaunchedEffect
-        a.requestedOrientation = if (watchFullscreen) {
-            ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-        } else {
-            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        a.requestedOrientation = when (watchFullscreenMode) {
+            WatchFullscreenMode.LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            WatchFullscreenMode.PORTRAIT,
+            WatchFullscreenMode.NORMAL,
+            -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
         val controller = WindowCompat.getInsetsController(a.window, a.window.decorView)
         if (watchFullscreen) {
@@ -180,7 +182,7 @@ fun VolnaRoot(
     BackHandler(enabled = !watchFullscreen && pagerState.currentPage == WATCH_PAGE) {
         scope.launch { pagerState.scrollToPage(PLAYER_PAGE) }
     }
-    BackHandler(enabled = watchFullscreen) { watchFullscreen = false }
+    BackHandler(enabled = watchFullscreen) { watchFullscreenMode = WatchFullscreenMode.NORMAL }
 
     LaunchedEffect(Unit) {
         ProxyRuntime.refresh(context)
@@ -203,7 +205,7 @@ fun VolnaRoot(
     }
 
     LaunchedEffect(pagerState.currentPage) {
-        if (pagerState.currentPage != WATCH_PAGE) watchFullscreen = false
+        if (pagerState.currentPage != WATCH_PAGE) watchFullscreenMode = WatchFullscreenMode.NORMAL
     }
 
     LaunchedEffect(pirat) {
@@ -320,11 +322,15 @@ fun VolnaRoot(
                                 3 -> PlayerScreen(vm)
                                 else -> WatchScreen(
                                     vm = vm,
-                                    fullscreen = watchFullscreen,
+                                    fullscreenMode = watchFullscreenMode,
                                     onBack = {
-                                        scope.launch { pagerState.scrollToPage(PLAYER_PAGE) }
+                                        if (watchFullscreen) {
+                                            watchFullscreenMode = WatchFullscreenMode.NORMAL
+                                        } else {
+                                            scope.launch { pagerState.scrollToPage(PLAYER_PAGE) }
+                                        }
                                     },
-                                    onFullscreen = { watchFullscreen = it },
+                                    onFullscreenMode = { watchFullscreenMode = it },
                                     shareRequest = shareWatchRequest,
                                 )
                             }
