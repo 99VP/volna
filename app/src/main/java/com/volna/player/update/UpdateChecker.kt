@@ -15,6 +15,11 @@ import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.TimeUnit
 
+data class UpdateCheckResult(
+    val info: UpdateInfo?,
+    val success: Boolean,
+)
+
 data class UpdateInfo(
     val version: String,
     val releaseUrl: String,
@@ -40,27 +45,32 @@ object UpdateChecker {
 
     val currentVersion: String get() = BuildConfig.VERSION_NAME
 
-    suspend fun check(context: Context, force: Boolean = false): UpdateInfo? =
+    suspend fun check(context: Context, force: Boolean = false): UpdateCheckResult =
         withContext(Dispatchers.IO) {
             val prefs = context.getSharedPreferences("volna_update", Context.MODE_PRIVATE)
             val now = System.currentTimeMillis()
             if (!force && now - prefs.getLong("checkedAt", 0L) < CHECK_INTERVAL_MS) {
-                return@withContext cached(prefs)
+                return@withContext UpdateCheckResult(
+                    cached(prefs),
+                    prefs.getBoolean("lastSuccess", false),
+                )
             }
-            val result = runCatching { fetch() }.getOrNull()
-            if (result == null) {
-                prefs.edit().putLong("checkedAt", now).apply()
-                return@withContext cached(prefs)
+            val result = runCatching { fetch() }
+            if (result.isFailure) {
+                prefs.edit().putLong("checkedAt", now).putBoolean("lastSuccess", false).apply()
+                return@withContext UpdateCheckResult(cached(prefs), false)
             }
+            val info = result.getOrNull()
             prefs.edit()
                 .putLong("checkedAt", now)
-                .putString("version", result.version)
-                .putString("releaseUrl", result.releaseUrl)
-                .putString("apkUrl", result.apkUrl ?: "")
-                .putString("notes", result.notes)
-                .putString("buildId", result.buildId)
+                .putBoolean("lastSuccess", true)
+                .putString("version", info?.version.orEmpty())
+                .putString("releaseUrl", info?.releaseUrl.orEmpty())
+                .putString("apkUrl", info?.apkUrl.orEmpty())
+                .putString("notes", info?.notes.orEmpty())
+                .putString("buildId", info?.buildId.orEmpty())
                 .apply()
-            result
+            UpdateCheckResult(info, true)
         }
 
     private fun cached(prefs: android.content.SharedPreferences): UpdateInfo? {
@@ -80,9 +90,9 @@ object UpdateChecker {
             .header("User-Agent", "Volna-Android/${BuildConfig.VERSION_NAME}")
             .build()
         client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) return null
+            if (!response.isSuccessful) throw java.io.IOException("HTTP ${response.code}")
             val body = response.body?.string().orEmpty()
-            if (body.isBlank()) return null
+            if (body.isBlank()) throw java.io.IOException("Пустой ответ GitHub")
             val json = JSONObject(body)
             val tag = json.optString("tag_name").removePrefix("v").removePrefix("V")
             if (tag.isBlank()) return null
@@ -117,9 +127,15 @@ object UpdateChecker {
         val cmp = compare(info.version, BuildConfig.VERSION_NAME)
         if (cmp < 0) return false
         if (cmp > 0) return true
+        val remoteN = buildNumber(info.buildId)
+        val localN = buildNumber(BuildConfig.BUILD_ID)
+        if (remoteN != null && localN != null) return remoteN > localN
         val remote = info.buildId.ifBlank { info.version }
         return remote != BuildConfig.BUILD_ID
     }
+
+    private fun buildNumber(id: String): Int? =
+        Regex("^1\\.1\\.(\\d+)$").find(id)?.groupValues?.get(1)?.toIntOrNull()
 
     /** Простое сравнение версий вида 1.1 / 1.2.3. */
     fun isNewer(candidate: String): Boolean = compare(candidate, BuildConfig.VERSION_NAME) > 0

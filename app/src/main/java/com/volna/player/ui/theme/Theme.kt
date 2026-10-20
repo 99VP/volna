@@ -118,7 +118,7 @@ fun VolnaTheme(content: @Composable () -> Unit) {
         // Повторное нажатие той же темы не запускает ещё одну волну.
         if (themeId == lastWaveTheme) return@LaunchedEffect
         lastWaveTheme = themeId
-        if (waves.size >= 3) waves.removeAt(0)
+        if (waves.size >= 6) waves.removeAt(0)
         waves.add(
             ThemeWave(
                 startNanos = System.nanoTime(),

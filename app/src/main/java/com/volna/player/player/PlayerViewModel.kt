@@ -720,7 +720,10 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
             _updateChecking.value = true
             _updateError.value = null
             runCatching { UpdateChecker.check(appContext, force) }
-                .onSuccess { info -> if (info != null) _updateInfo.value = info }
+                .onSuccess { result ->
+                    if (result.success) _updateInfo.value = result.info
+                    else if (result.info != null) _updateInfo.value = result.info
+                }
                 .onFailure { _updateError.value = it.message ?: "Не удалось проверить обновления" }
             _updateChecking.value = false
         }

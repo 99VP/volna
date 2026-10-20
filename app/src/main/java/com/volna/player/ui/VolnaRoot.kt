@@ -286,34 +286,6 @@ fun VolnaRoot(
                             }
                         }
                     },
-                    floatingActionButton = {
-                        if (!watchFullscreen) {
-                            Surface(
-                                shape = CircleShape,
-                                color = MaterialTheme.colorScheme.primary,
-                                contentColor = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier
-                                    .size(56.dp)
-                                    .pointerInput(Unit) {
-                                        detectTapGestures(
-                                            onPress = {
-                                                // Держишь 3 сек — срабатывает, не отпуская.
-                                                val released = withTimeoutOrNull(3000) { tryAwaitRelease() }
-                                                if (released == null) {
-                                                    vm.toggleDeveloper()
-                                                } else if (released) {
-                                                    showSettings = true
-                                                }
-                                            },
-                                        )
-                                    },
-                            ) {
-                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    Icon(painterResource(R.drawable.ic_settings), contentDescription = "Настройки")
-                                }
-                            }
-                        }
-                    },
                 ) { padding ->
                     Column(Modifier.padding(padding).fillMaxSize()) {
                         if (!watchFullscreen) {
@@ -328,6 +300,8 @@ fun VolnaRoot(
                                 isWatch = pagerState.currentPage == WATCH_PAGE,
                                 onWatchTogether = { shareWatchRequest++ },
                                 onWatchSettings = { watchSettingsRequest++ },
+                                onSettings = { showSettings = true },
+                                onDeveloper = { vm.toggleDeveloper() },
                             )
                         }
                         val info = updateInfo
@@ -451,6 +425,8 @@ private fun Header(
     isWatch: Boolean = false,
     onWatchTogether: (() -> Unit)? = null,
     onWatchSettings: (() -> Unit)? = null,
+    onSettings: (() -> Unit)? = null,
+    onDeveloper: (() -> Unit)? = null,
 ) {
     Row(
         Modifier
@@ -466,6 +442,27 @@ private fun Header(
             Spacer(Modifier.width(10.dp))
         }
         Text("Волна", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+        onSettings?.let { open ->
+            Box(
+                Modifier
+                    .size(48.dp)
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onPress = {
+                                val released = withTimeoutOrNull(3000) { tryAwaitRelease() }
+                                if (released == null) onDeveloper?.invoke() else if (released) open()
+                            },
+                        )
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    painterResource(R.drawable.ic_settings),
+                    contentDescription = "Настройки",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
         if (isWatch) {
             onWatchSettings?.let {
                 IconButton(onClick = it) {

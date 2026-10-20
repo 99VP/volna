@@ -22,6 +22,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -60,6 +62,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -893,10 +896,13 @@ fun WatchScreen(
                 onValueChange = {
                     searchQuery = it
                     selectedResult = null
+                    searchResults = emptyList()
                 },
                 modifier = Modifier.weight(1f),
                 placeholder = { Text("Поиск") },
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { runSearch() }),
             )
             Spacer(Modifier.width(8.dp))
             OutlinedIconButton(
@@ -923,6 +929,7 @@ fun WatchScreen(
                     }
                 },
                 shape = CircleShape,
+                enabled = searchQuery.isNotBlank(),
                 modifier = Modifier.size(48.dp),
             ) {
                 Icon(painterResource(R.drawable.ic_add), "В очередь")
@@ -971,16 +978,6 @@ fun WatchScreen(
                     if (videoQueue.isNotEmpty()) {
                         TextButton(onClick = { vm.clearVideoQueue() }) { Text("Очистить") }
                     }
-                }
-            }
-            if (videoQueue.isEmpty()) {
-                item {
-                    Text(
-                        "Добавляйте видео кнопкой +",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                    )
                 }
             }
             items(videoQueue, key = { "q-${it.id}" }) { track ->
