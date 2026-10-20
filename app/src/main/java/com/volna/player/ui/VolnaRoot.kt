@@ -111,7 +111,6 @@ fun VolnaRoot(
     var showSettings by remember { mutableStateOf(false) }
     var watchFullscreen by remember { mutableStateOf(false) }
     var shareWatchRequest by remember { mutableIntStateOf(0) }
-    var watchSettingsRequest by remember { mutableIntStateOf(0) }
     val pirat by vm.pirat.collectAsState()
     val piratMessage by vm.piratMessage.collectAsState()
     val piratQuip by vm.piratQuip.collectAsState()
@@ -299,7 +298,6 @@ fun VolnaRoot(
                                 },
                                 isWatch = pagerState.currentPage == WATCH_PAGE,
                                 onWatchTogether = { shareWatchRequest++ },
-                                onWatchSettings = { watchSettingsRequest++ },
                                 onSettings = { showSettings = true },
                                 onDeveloper = { vm.toggleDeveloper() },
                             )
@@ -331,7 +329,6 @@ fun VolnaRoot(
                                     },
                                     onFullscreen = { watchFullscreen = it },
                                     shareRequest = shareWatchRequest,
-                                    settingsRequest = watchSettingsRequest,
                                 )
                             }
                         }
@@ -424,7 +421,6 @@ private fun Header(
     onWatch: (() -> Unit)? = null,
     isWatch: Boolean = false,
     onWatchTogether: (() -> Unit)? = null,
-    onWatchSettings: (() -> Unit)? = null,
     onSettings: (() -> Unit)? = null,
     onDeveloper: (() -> Unit)? = null,
 ) {
@@ -464,15 +460,6 @@ private fun Header(
             }
         }
         if (isWatch) {
-            onWatchSettings?.let {
-                IconButton(onClick = it) {
-                    Icon(
-                        painterResource(R.drawable.ic_more_vert),
-                        contentDescription = "Настройки просмотра",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
-                    )
-                }
-            }
             onWatchTogether?.let {
                 IconButton(onClick = it) {
                     Icon(painterResource(R.drawable.ic_people), contentDescription = "Смотреть вместе")

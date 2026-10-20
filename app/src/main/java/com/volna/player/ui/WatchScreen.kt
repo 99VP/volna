@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -29,7 +28,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -115,7 +113,6 @@ fun WatchScreen(
     onBack: () -> Unit,
     onFullscreen: (Boolean) -> Unit,
     shareRequest: Int,
-    settingsRequest: Int,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -156,7 +153,6 @@ fun WatchScreen(
     var qualityOptions by remember { mutableStateOf<List<Int>>(emptyList()) }
     var resultsExpanded by remember { mutableStateOf(false) }
     var controlsVisible by remember { mutableStateOf(true) }
-    var settingsDialog by remember { mutableStateOf(false) }
     var seekFeedback by remember { mutableIntStateOf(0) }
     var seekFeedbackLeft by remember { mutableStateOf(true) }
     var seekFeedbackKey by remember { mutableIntStateOf(0) }
@@ -508,10 +504,6 @@ fun WatchScreen(
         }
     }
 
-    LaunchedEffect(settingsRequest) {
-        if (settingsRequest > 0) settingsDialog = true
-    }
-
     LaunchedEffect(savedRoom, savedRoomServer) {
         val code = savedRoom?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
         val base = savedRoomServer?.takeIf { it.isNotBlank() } ?: configuredServer
@@ -664,58 +656,6 @@ fun WatchScreen(
         }
     }
 
-    if (settingsDialog) {
-        AlertDialog(
-            onDismissRequest = { settingsDialog = false },
-            title = { Text("Настройки просмотра") },
-            text = {
-                Column {
-                    Text("Скорость", style = MaterialTheme.typography.labelMedium)
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(SPEEDS) { s ->
-                            FilterChip(
-                                selected = speed == s,
-                                onClick = { speed = s; player.setPlaybackSpeed(s) },
-                                label = { Text(if (s == 1f) "1×" else "${s}×") },
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(12.dp))
-                    Text("Качество", style = MaterialTheme.typography.labelMedium)
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        item {
-                            FilterChip(
-                                selected = quality == null,
-                                onClick = {
-                                    fallbackTried = false
-                                    qualityReload = player.mediaItemCount > 0
-                                    quality = null
-                                    playNonce++
-                                },
-                                label = { Text("Авто") },
-                            )
-                        }
-                        items(qualityOptions) { q ->
-                            FilterChip(
-                                selected = quality == q,
-                                onClick = {
-                                    fallbackTried = false
-                                    qualityReload = player.mediaItemCount > 0
-                                    quality = q
-                                    playNonce++
-                                },
-                                label = { Text("${q}p") },
-                            )
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(onClick = { settingsDialog = false }) { Text("Готово") }
-            },
-        )
-    }
-
     val videoModifier = if (fullscreen) {
         Modifier.fillMaxSize().then(gestureModifier)
     } else {
@@ -750,13 +690,6 @@ fun WatchScreen(
                                 color = Color.White,
                                 textAlign = TextAlign.Start,
                                 modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
-                        IconButton(onClick = { settingsDialog = true }) {
-                            Icon(
-                                painterResource(R.drawable.ic_more_vert),
-                                "Настройки просмотра",
-                                tint = Color.White.copy(alpha = 0.65f),
                             )
                         }
                         IconButton(onClick = { share() }) {
