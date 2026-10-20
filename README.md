@@ -55,6 +55,9 @@ always requires a confirmation tap, and this warning cannot be removed from
 inside the app. Removing it completely requires distribution through Google Play
 or Android developer verification.
 
+SHA-256 of `Volna-1.1.apk`:
+`e725b104395d03fcaeaee6dd5580f75a6c7dab2b3e4260c0833014215d19984a`
+
 ## Privacy
 
 - No accounts, analytics, ads, or tracking.
@@ -140,6 +143,9 @@ Android может показать предупреждение Play Protect «
 проекта; паролей подписи и API-ключей в репозитории нет. Полностью убрать это
 предупреждение изнутри приложения нельзя: для этого нужна публикация в Google
 Play или проверка разработчика Android.
+
+SHA-256 файла `Volna-1.1.apk`:
+`e725b104395d03fcaeaee6dd5580f75a6c7dab2b3e4260c0833014215d19984a`
 
 ### Приватность
 
